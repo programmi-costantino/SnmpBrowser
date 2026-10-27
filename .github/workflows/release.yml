@@ -78,7 +78,7 @@ jobs:
       - name: Crea installer e pacchetti
         shell: powershell
         run: |
-          vpk pack --packId SnmpBrowser --packTitle "SNMP Browser" --packAuthors "programmi-costantino" --packVersion $env:VERSION --packDir publish --mainExe SnmpBrowser.exe
+          vpk pack --packId SnmpBrowser --packTitle "SNMP Browser" --packAuthors "programmi-costantino" --packVersion $env:VERSION --packDir publish --mainExe SnmpBrowser.exe --icon app.ico
           if ($LASTEXITCODE -ne 0) { throw "vpk pack fallito (codice $LASTEXITCODE)" }
           Get-ChildItem Releases | Format-Table Name, Length
 
