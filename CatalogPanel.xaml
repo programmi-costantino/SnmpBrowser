@@ -29,6 +29,9 @@
                     <TextBox x:Name="UrlBox" FontFamily="Consolas" />
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Bottom" Margin="10,0,0,0">
+                    <Button x:Name="InstallFileButton" Content="Installa da file..." Visibility="Collapsed"
+                            Style="{StaticResource SecondaryButton}" Margin="0,0,8,0" Click="InstallFileButton_Click"
+                            ToolTip="Installa un plugin da una cartella o da un file .zip, senza rete" />
                     <Button x:Name="AddPersonalButton" Content="Aggiungi sorgente personale..."
                             Style="{StaticResource SecondaryButton}" Click="AddPersonalButton_Click" />
                     <Button x:Name="SyncButton" Content="Aggiorna elenco" Margin="8,0,0,0" Click="SyncButton_Click" />
@@ -56,7 +59,7 @@
                         </DataGridTemplateColumn>
                         <DataGridTextColumn Header="Ultima" Binding="{Binding LatestText}" Width="80" />
                         <DataGridTextColumn Header="Stato" Binding="{Binding StatusText}" Width="*" />
-                        <DataGridTemplateColumn Header="Azioni" Width="400">
+                        <DataGridTemplateColumn Header="Azioni" Width="520">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
                                     <StackPanel Orientation="Horizontal">
@@ -67,6 +70,10 @@
                                                 IsEnabled="{Binding IsBusy, Converter={x:Static local:InverseBool.Instance}}"
                                                 Visibility="{Binding PluginActionVisible, Converter={StaticResource BoolToVis}}"
                                                 Click="PluginButton_Click" />
+                                        <Button Content="MQTT..." Margin="6,0,0,0" Padding="12,4"
+                                                Style="{StaticResource SecondaryButton}"
+                                                Visibility="{Binding PluginMqttVisible, Converter={StaticResource BoolToVis}}"
+                                                Click="MqttButton_Click" />
                                         <Button Content="Rimuovi" IsEnabled="{Binding CanRemove}" Margin="6,0,0,0"
                                                 Padding="12,4" Style="{StaticResource SecondaryButton}"
                                                 Click="RemoveButton_Click" />

@@ -164,6 +164,84 @@ public sealed class PluginManager
         Changed?.Invoke();
     }
 
+    // ---- Credenziali MQTT (inserite dall'utente, mai dal plugin) --------------
+
+    private sealed class MqttRecord
+    {
+        public string Username { get; set; } = "";
+        public string? ProtectedPassword { get; set; }
+    }
+
+    private static string MqttFile => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SnmpBrowser", "plugins-mqtt.json");
+
+    private Dictionary<string, MqttRecord> ReadMqttFile()
+    {
+        try
+        {
+            if (File.Exists(MqttFile))
+                return JsonSerializer.Deserialize<Dictionary<string, MqttRecord>>(File.ReadAllText(MqttFile)) ?? new();
+        }
+        catch
+        {
+        }
+        return new();
+    }
+
+    // lock separato da _gate: GetMqttCredentials viene chiamato mentre un plugin e' in esecuzione
+    private readonly object _mqttGate = new();
+
+    public MqttCredentials? GetMqttCredentials(string pluginId)
+    {
+        lock (_mqttGate)
+        {
+            if (!ReadMqttFile().TryGetValue(pluginId, out var record) || record.Username.Length == 0) return null;
+            try
+            {
+                var password = record.ProtectedPassword is null
+                    ? ""
+                    : System.Text.Encoding.UTF8.GetString(System.Security.Cryptography.ProtectedData.Unprotect(
+                        Convert.FromBase64String(record.ProtectedPassword), null,
+                        System.Security.Cryptography.DataProtectionScope.CurrentUser));
+                return new MqttCredentials(record.Username, password);
+            }
+            catch
+            {
+                return new MqttCredentials(record.Username, "");
+            }
+        }
+    }
+
+    public string? SetMqttCredentials(string pluginId, string username, string password)
+    {
+        lock (_mqttGate)
+        {
+            try
+            {
+                var all = ReadMqttFile();
+                if (username.Length == 0) all.Remove(pluginId);
+                else
+                    all[pluginId] = new MqttRecord
+                    {
+                        Username = username,
+                        ProtectedPassword = password.Length == 0
+                            ? null
+                            : Convert.ToBase64String(System.Security.Cryptography.ProtectedData.Protect(
+                                System.Text.Encoding.UTF8.GetBytes(password), null,
+                                System.Security.Cryptography.DataProtectionScope.CurrentUser)),
+                    };
+
+                Directory.CreateDirectory(Path.GetDirectoryName(MqttFile)!);
+                File.WriteAllText(MqttFile, JsonSerializer.Serialize(all, new JsonSerializerOptions { WriteIndented = true }));
+                return null;
+            }
+            catch (Exception ex)
+            {
+                return ex.Message;
+            }
+        }
+    }
+
     // ---- Servizi per gli script --------------------------------------------
 
     /// <summary>Ogni scrittura SNMP richiesta da un plugin passa da una conferma dell'utente.</summary>

@@ -58,6 +58,7 @@ public partial class App : Application
         Services.PersonalCatalog.Mib.LoadInstalled();
         Services.RepoCatalog.Plugins.LoadInstalled();
         Services.PersonalCatalog.Plugins.LoadInstalled();
+        Plugins.LocalPluginStore.LoadInstalled();
         base.OnStartup(e);
     }
 

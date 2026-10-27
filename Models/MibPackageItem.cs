@@ -46,8 +46,20 @@ public sealed class MibPackageItem : INotifyPropertyChanged
     /// <summary>Id della sorgente personale; null per i pacchetti del repository centrale.</summary>
     public string? SourceId { get; init; }
 
+    /// <summary>Plugin installato da una cartella o da un file .zip (non appartiene a nessun repository).</summary>
+    public bool IsLocal { get; init; }
+
+    private bool _pluginMqtt;
+    public bool PluginMqttVisible => _pluginMqtt;
+
+    public void SetPluginMqtt(bool visible)
+    {
+        _pluginMqtt = visible;
+        Notify();
+    }
+
     public bool IsPersonal => SourceId is not null;
-    public string SourceText => IsPersonal ? "Personale" : "Centrale";
+    public string SourceText => IsLocal ? "File" : IsPersonal ? "Personale" : "Centrale";
     public ObservableCollection<string> Versions { get; } = new();
 
     public static bool IsBranchRef(string? version) => version?.EndsWith(BranchSuffix, StringComparison.Ordinal) == true;
@@ -88,6 +100,7 @@ public sealed class MibPackageItem : INotifyPropertyChanged
     {
         get
         {
+            if (IsLocal) return "-";
             if (!IsInstalled) return "Installa";
             if (_selectedVersion == _installedVersion) return BranchSelected ? "Aggiorna" : "Installata";
             return "Applica";
@@ -108,7 +121,8 @@ public sealed class MibPackageItem : INotifyPropertyChanged
             if (!string.IsNullOrEmpty(_error)) return _error;
             if (!IsInstalled) return Versions.Count == 0 ? "Non installata (nessuna versione)" : "Non installata";
             string status;
-            if (IsBranchRef(_installedVersion)) status = "Segue un branch: premi Aggiorna per l'ultima versione";
+            if (IsLocal) status = "Installato da file";
+            else if (IsBranchRef(_installedVersion)) status = "Segue un branch: premi Aggiorna per l'ultima versione";
             else status = Latest is not null && Latest != _installedVersion ? "Aggiornamento disponibile" : "Aggiornata";
             return _pluginState is null ? status : $"{status} - plugin: {_pluginState}";
         }

@@ -42,6 +42,7 @@ public partial class CatalogPanel : UserControl
         IntroText.Text = intro;
         PackagesGrid.ItemsSource = _items;
         UrlBox.Text = central.LoadUrl();
+        InstallFileButton.Visibility = isPlugin ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void Panel_Loaded(object sender, RoutedEventArgs e)
@@ -119,6 +120,7 @@ public partial class CatalogPanel : UserControl
 
             var personal = await _personal.LoadItemsAsync(personalRemote);
             all.AddRange(personal);
+            if (_isPlugin) all.AddRange(LocalPluginStore.ListItems());
             SetItems(all);
 
             // se usi solo sorgenti personali non ti ripeto che il repository centrale non e' configurato
@@ -176,10 +178,13 @@ public partial class CatalogPanel : UserControl
 
         try
         {
-            var error = item.IsPersonal
-                ? await _personal.RemoveAsync(item)
-                : await _central.RemoveAsync(item);
+            var error = item.IsLocal
+                ? await Task.Run(() => LocalPluginStore.Remove(item))
+                : item.IsPersonal
+                    ? await _personal.RemoveAsync(item)
+                    : await _central.RemoveAsync(item);
             MessageText.Text = error ?? $"{item.Name} rimosso.";
+            if (error is null && item.IsLocal) _items.Remove(item);
         }
         finally
         {
@@ -222,6 +227,57 @@ public partial class CatalogPanel : UserControl
         RefreshPluginInfo();
     }
 
+    private void InstallFileButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy) return;
+
+        var menu = new ContextMenu();
+        var folder = new MenuItem { Header = "Da una cartella..." };
+        folder.Click += async (_, _) =>
+        {
+            var dialog = new Microsoft.Win32.OpenFolderDialog { Title = "Cartella del plugin (con plugin.json)" };
+            if (dialog.ShowDialog(Window.GetWindow(this)) == true)
+                await ImportAsync(() => LocalPluginStore.ImportFolderAsync(dialog.FolderName));
+        };
+        var zip = new MenuItem { Header = "Da un file .zip..." };
+        zip.Click += async (_, _) =>
+        {
+            var dialog = new Microsoft.Win32.OpenFileDialog { Filter = "Plugin compresso (*.zip)|*.zip", Title = "File zip del plugin" };
+            if (dialog.ShowDialog(Window.GetWindow(this)) == true)
+                await ImportAsync(() => LocalPluginStore.ImportZipAsync(dialog.FileName));
+        };
+        menu.Items.Add(folder);
+        menu.Items.Add(zip);
+        menu.PlacementTarget = InstallFileButton;
+        menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+        menu.IsOpen = true;
+    }
+
+    private async Task ImportAsync(Func<Task<string?>> import)
+    {
+        SetBusy(true);
+        MessageText.Text = "Installazione del plugin...";
+        try
+        {
+            var error = await import();
+            MessageText.Text = error is null ? "Plugin installato. Premi \"Attiva...\" per usarlo." : $"Installazione non riuscita: {error}";
+        }
+        finally
+        {
+            SetBusy(false);
+        }
+        await ReloadAsync(centralRemote: false, personalRemote: false);
+    }
+
+    private void MqttButton_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not MibPackageItem { ActivationKey: { } key }) return;
+        var plugin = PluginManager.Instance.Find(key);
+        if (plugin?.Manifest.Mqtt is null) return;
+
+        new PluginMqttWindow(plugin) { Owner = Window.GetWindow(this) }.ShowDialog();
+    }
+
     /// <summary>Aggiorna stato e pulsante dei plugin nella tabella (no-op per i MIB).</summary>
     private void RefreshPluginInfo()
     {
@@ -232,6 +288,8 @@ public partial class CatalogPanel : UserControl
             var plugin = item.IsInstalled && item.ActivationKey is not null
                 ? PluginManager.Instance.Find(item.ActivationKey)
                 : null;
+
+            item.SetPluginMqtt(plugin is { State: not PluginState.Error, Manifest.Mqtt: not null });
 
             if (plugin is null)
             {

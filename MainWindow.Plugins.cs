@@ -17,7 +17,13 @@ public partial class MainWindow
     private void InitPlugins()
     {
         PluginManager.Instance.Changed += OnPluginsChanged;
-        Closed += (_, _) => PluginManager.Instance.Changed -= OnPluginsChanged;
+        PluginScheduler.Instance.Changed += OnSchedulesChanged;
+        Closed += (_, _) =>
+        {
+            PluginManager.Instance.Changed -= OnPluginsChanged;
+            PluginScheduler.Instance.Changed -= OnSchedulesChanged;
+            PluginScheduler.Instance.StopAll();
+        };
         UpdatePluginButton();
     }
 
@@ -31,10 +37,17 @@ public partial class MainWindow
         }).Task.Unwrap();
     }
 
+    private void OnSchedulesChanged() => Dispatcher.BeginInvoke(UpdatePluginButton);
+
     private void UpdatePluginButton()
     {
         var active = PluginManager.Instance.Active.Count();
-        PluginButton.Content = active == 0 ? "Plugin" : $"Plugin ({active})";
+        var running = PluginScheduler.Instance.Running.Count;
+        var text = active == 0 ? "Plugin" : $"Plugin ({active})";
+        PluginButton.Content = running == 0 ? text : $"{text}  \u25CF {running}";
+        PluginButton.ToolTip = running == 0
+            ? "Pannelli e azioni dei plugin attivi, gestione plugin"
+            : $"{running} esecuzione/i periodica/he in corso: apri il menu per fermarle";
     }
 
     private async Task OpenCatalogWindowAsync(string tab)
@@ -52,7 +65,7 @@ public partial class MainWindow
 
         foreach (var plugin in PluginManager.Instance.Active)
         {
-            if (plugin.Panels.Count == 0 && plugin.Actions.Count == 0) continue;
+            if (plugin.Panels.Count == 0 && plugin.Actions.Count == 0 && plugin.Schedules.Count == 0) continue;
             any = true;
 
             menu.Items.Add(new MenuItem { Header = plugin.DisplayName, IsEnabled = false, FontWeight = FontWeights.SemiBold });
@@ -72,6 +85,23 @@ public partial class MainWindow
                 item.Click += (_, _) => OpenPluginView(p, "action", id, title);
                 menu.Items.Add(item);
             }
+            foreach (var schedule in plugin.Schedules)
+            {
+                var (p, s) = (plugin, schedule);
+                var run = PluginScheduler.Instance.Find(p, s.Id);
+                MenuItem item;
+                if (run is null)
+                {
+                    item = new MenuItem { Header = $"    \u25B6  Avvia: {s.Title} (ogni {FormatEvery(s.EverySeconds)})" };
+                    item.Click += (_, _) => StartSchedule(p, s);
+                }
+                else
+                {
+                    item = new MenuItem { Header = $"    \u25A0  Ferma: {s.Title} - {run.Status}" };
+                    item.Click += (_, _) => PluginScheduler.Instance.Stop(p, s.Id);
+                }
+                menu.Items.Add(item);
+            }
             menu.Items.Add(new Separator());
         }
 
@@ -88,6 +118,24 @@ public partial class MainWindow
         menu.PlacementTarget = PluginButton;
         menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
         menu.IsOpen = true;
+    }
+
+    private static string FormatEvery(int seconds) =>
+        seconds % 3600 == 0 ? $"{seconds / 3600} h" : seconds % 60 == 0 ? $"{seconds / 60} min" : $"{seconds} s";
+
+    /// <summary>Le esecuzioni periodiche usano la connessione indicata nella finestra al momento dell'avvio.</summary>
+    private void StartSchedule(PluginInstance plugin, PluginSchedule schedule)
+    {
+        var settings = TryGetSettings();
+        if (settings is null && (plugin.Manifest.Permissions.Contains("snmp.read") || plugin.Manifest.Permissions.Contains("snmp.write")))
+        {
+            SetStatus("Controlla host, porta e timeout prima di avviare l'esecuzione periodica.", ErrorBrush);
+            return;
+        }
+
+        PluginScheduler.Instance.Start(plugin, schedule, settings, HostBox.Text.Trim(), PortBox.Text.Trim(),
+            VersionBox.SelectedIndex == 0 ? "v1" : "v2c");
+        SetStatus($"{plugin.DisplayName}: '{schedule.Title}' avviato (ogni {FormatEvery(schedule.EverySeconds)}) su {HostBox.Text.Trim()}.", OkBrush);
     }
 
     private void OpenPluginView(PluginInstance plugin, string kind, string id, string title)

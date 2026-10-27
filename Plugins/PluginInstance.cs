@@ -16,7 +16,7 @@ namespace SnmpBrowser.Plugins;
 public sealed class PluginInstance : IDisposable
 {
     private static readonly Regex IdRx = new(@"^[a-z0-9][a-z0-9-]{0,39}$", RegexOptions.Compiled);
-    private static readonly string[] KnownPermissions = { "snmp.read", "snmp.write" };
+    private static readonly string[] KnownPermissions = { "snmp.read", "snmp.write", "mqtt.publish" };
 
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -29,6 +29,10 @@ public sealed class PluginInstance : IDisposable
     private Engine? _engine;
     private SnmpSettings? _settings;
     private int _budget;
+    private int _publishBudget;
+    private bool _unattended;
+    private MqttSession? _mqtt;
+    private string? _mqttError;
     private string _mainSource = "";
 
     private PluginInstance(string key, string dir)
@@ -49,6 +53,7 @@ public sealed class PluginInstance : IDisposable
     public IReadOnlyList<PluginPanel> Panels { get; private set; } = Array.Empty<PluginPanel>();
     public IReadOnlyList<PluginExporter> Exporters { get; private set; } = Array.Empty<PluginExporter>();
     public IReadOnlyList<PluginDecoder> Decoders { get; private set; } = Array.Empty<PluginDecoder>();
+    public IReadOnlyList<PluginSchedule> Schedules { get; private set; } = Array.Empty<PluginSchedule>();
 
     public string DisplayName => string.IsNullOrWhiteSpace(Manifest.Name) ? Path.GetFileName(Dir) : Manifest.Name;
 
@@ -100,6 +105,17 @@ public sealed class PluginInstance : IDisposable
         m.Permissions = m.Permissions.Select(p => p.Trim()).Distinct().ToList();
         var unknown = m.Permissions.FirstOrDefault(p => !KnownPermissions.Contains(p));
         if (unknown is not null) throw new InvalidDataException($"permesso sconosciuto: {unknown}");
+
+        var wantsMqtt = m.Permissions.Contains("mqtt.publish");
+        if (wantsMqtt && m.Mqtt is null) throw new InvalidDataException("il permesso mqtt.publish richiede la sezione 'mqtt' con host e porta del broker");
+        if (!wantsMqtt && m.Mqtt is not null) throw new InvalidDataException("la sezione 'mqtt' richiede il permesso mqtt.publish");
+        if (m.Mqtt is not null)
+        {
+            m.Mqtt.Host = m.Mqtt.Host.Trim();
+            var hostError = InputValidator.Host(m.Mqtt.Host);
+            if (hostError is not null) throw new InvalidDataException($"broker MQTT: {hostError}");
+            if (m.Mqtt.Port is < 1 or > 65535) throw new InvalidDataException("broker MQTT: porta non valida");
+        }
     }
 
     private static Dictionary<string, byte[]> Snapshot(string dir, out string hash)
@@ -165,12 +181,14 @@ public sealed class PluginInstance : IDisposable
 
     private void StopInternal()
     {
+        PluginScheduler.Instance.StopAll(this);
         _engine?.Dispose();
         _engine = null;
         Actions = Array.Empty<PluginAction>();
         Panels = Array.Empty<PluginPanel>();
         Exporters = Array.Empty<PluginExporter>();
         Decoders = Array.Empty<PluginDecoder>();
+        Schedules = Array.Empty<PluginSchedule>();
         _decoderErrors.Clear();
     }
 
@@ -187,6 +205,7 @@ public sealed class PluginInstance : IDisposable
         public string Title { get; set; } = "";
         public string Extension { get; set; } = "";
         public string OidPrefix { get; set; } = "";
+        public int EverySeconds { get; set; } = 60;
     }
 
     private sealed class Meta
@@ -195,6 +214,7 @@ public sealed class PluginInstance : IDisposable
         public List<MetaItem> Panels { get; set; } = new();
         public List<MetaItem> Exporters { get; set; } = new();
         public List<MetaItem> Decoders { get; set; } = new();
+        public List<MetaItem> Schedules { get; set; } = new();
     }
 
     /// <summary>Esegue lo script di registrazione. Va chiamato solo dopo l'approvazione dell'utente.</summary>
@@ -219,6 +239,7 @@ public sealed class PluginInstance : IDisposable
                 engine.SetValue("__hostSet", new Func<string, string, string, string>(HostSet));
                 engine.SetValue("__hostResolve", new Func<string, string>(HostResolve));
                 engine.SetValue("__hostName", new Func<string, string>(HostName));
+                engine.SetValue("__hostPublish", new Func<string, string, bool, int, string>(HostPublish));
 
                 engine.Execute(Prelude, "prelude");
                 engine.Execute(_mainSource, Manifest.Main);
@@ -229,6 +250,10 @@ public sealed class PluginInstance : IDisposable
                 Panels = meta.Panels.Select(m => new PluginPanel(m.Id, m.Title)).ToList();
                 Exporters = meta.Exporters.Select(m => new PluginExporter(m.Id, m.Title, SafeExtension(m.Extension))).ToList();
                 Decoders = meta.Decoders.Select(m => new PluginDecoder(m.Id, m.Title, m.OidPrefix.Trim().TrimStart('.'))).ToList();
+
+                Schedules = meta.Schedules
+                    .Select(m => new PluginSchedule(m.Id, m.Title, Math.Clamp(m.EverySeconds, 5, 86400)))
+                    .ToList();
 
                 _engine = engine;
                 State = PluginState.Active;
@@ -258,10 +283,11 @@ public sealed class PluginInstance : IDisposable
     // ---- Chiamate dal programma allo script ---------------------------------
 
     /// <summary>Esegue una funzione del plugin su un thread del pool. kind: action, panel, exporter, decoder.</summary>
-    public Task<PluginCallResult> CallAsync(string kind, string id, string argsJson, SnmpSettings? settings) =>
-        Task.Run(() => CallSync(kind, id, argsJson, settings));
+    public Task<PluginCallResult> CallAsync(string kind, string id, string argsJson, SnmpSettings? settings, bool unattended = false) =>
+        Task.Run(() => CallSync(kind, id, argsJson, settings, unattended));
 
-    public PluginCallResult CallSync(string kind, string id, string argsJson, SnmpSettings? settings)
+    /// <summary>unattended = esecuzione periodica senza l'utente davanti: niente scritture SNMP.</summary>
+    public PluginCallResult CallSync(string kind, string id, string argsJson, SnmpSettings? settings, bool unattended = false)
     {
         lock (_gate)
         {
@@ -270,6 +296,9 @@ public sealed class PluginInstance : IDisposable
 
             _settings = settings;
             _budget = 300;
+            _publishBudget = 100;
+            _unattended = unattended;
+            _mqttError = null;
             try
             {
                 _engine.SetValue("__k", kind);
@@ -285,6 +314,9 @@ public sealed class PluginInstance : IDisposable
             finally
             {
                 _settings = null;
+                _unattended = false;
+                _mqtt?.Dispose();
+                _mqtt = null;
             }
         }
     }
@@ -330,6 +362,7 @@ public sealed class PluginInstance : IDisposable
     private string HostSet(string oid, string type, string value)
     {
         if (!Has("snmp.write")) return ErrJson("permesso mancante: snmp.write");
+        if (_unattended) return ErrJson("le scritture SNMP non sono consentite nelle esecuzioni periodiche");
 
         var invalid = InputValidator.SetValue(type, value);
         if (invalid is not null) return ErrJson(invalid);
@@ -338,6 +371,34 @@ public sealed class PluginInstance : IDisposable
             PluginManager.Instance.ConfirmWrite(DisplayName, oid, type, value)
                 ? SnmpService.SetAsync(s, oid, type, value)
                 : Task.FromResult(new SnmpResult(new List<SnmpEntry>(), "Scrittura annullata dall'utente.")));
+    }
+
+    private string HostPublish(string topic, string payload, bool retain, int qos)
+    {
+        if (!Has("mqtt.publish") || Manifest.Mqtt is null) return ErrJson("permesso mancante: mqtt.publish");
+        if (_mqttError is not null) return ErrJson(_mqttError);
+        if (--_publishBudget < 0) return ErrJson("troppi messaggi MQTT in una sola esecuzione (max 100)");
+
+        var invalid = MqttSession.ValidateTopic(topic);
+        if (invalid is not null) return ErrJson(invalid);
+
+        var bytes = Encoding.UTF8.GetBytes(payload);
+        if (bytes.Length > 65536) return ErrJson("messaggio troppo grande (max 64 KB)");
+
+        try
+        {
+            // la connessione si apre alla prima pubblicazione e si chiude a fine esecuzione
+            _mqtt ??= MqttSession.Connect(Manifest.Mqtt, PluginManager.Instance.GetMqttCredentials(Manifest.Id));
+            _mqtt.Publish(topic, bytes, retain, qos);
+            return ToJson(new { ok = true, error = (string?)null });
+        }
+        catch (Exception ex)
+        {
+            _mqtt?.Dispose();
+            _mqtt = null;
+            _mqttError = ex.Message; // le pubblicazioni successive di questa esecuzione falliscono subito
+            return ErrJson(ex.Message);
+        }
     }
 
     private string Snmp(string permission, string oid, Func<SnmpSettings, Task<SnmpResult>> operation)
@@ -364,10 +425,10 @@ public sealed class PluginInstance : IDisposable
     // ---- Script di base eseguito in ogni plugin -----------------------------
 
     private const string Prelude = """
-var __handlers = { action: {}, panel: {}, exporter: {}, decoder: {} };
-var __meta = { actions: [], panels: [], exporters: [], decoders: [] };
-var __entry = { action: 'run', panel: 'render', exporter: 'export', decoder: 'decode' };
-var __plural = { action: 'actions', panel: 'panels', exporter: 'exporters', decoder: 'decoders' };
+var __handlers = { action: {}, panel: {}, exporter: {}, decoder: {}, schedule: {} };
+var __meta = { actions: [], panels: [], exporters: [], decoders: [], schedules: [] };
+var __entry = { action: 'run', panel: 'render', exporter: 'export', decoder: 'decode', schedule: 'run' };
+var __plural = { action: 'actions', panel: 'panels', exporter: 'exporters', decoder: 'decoders', schedule: 'schedules' };
 
 function __reg(kind, def) {
   var fn = __entry[kind];
@@ -378,6 +439,7 @@ function __reg(kind, def) {
   var m = { id: def.id, title: String(def.title || def.id) };
   if (kind === 'exporter') m.extension = String(def.extension || 'txt');
   if (kind === 'decoder') m.oidPrefix = String(def.oidPrefix || '');
+  if (kind === 'schedule') m.everySeconds = Math.floor(Number(def.everySeconds) || 60);
   __meta[__plural[kind]].push(m);
 }
 
@@ -386,6 +448,7 @@ var app = {
   registerPanel: function (d) { __reg('panel', d); },
   registerExporter: function (d) { __reg('exporter', d); },
   registerDecoder: function (d) { __reg('decoder', d); },
+  registerSchedule: function (d) { __reg('schedule', d); },
   log: function (m) { __hostLog(String(m)); }
 };
 
@@ -393,6 +456,14 @@ var snmp = {
   get: function (oid) { return JSON.parse(__hostGet(String(oid))); },
   walk: function (oid) { return JSON.parse(__hostWalk(String(oid))); },
   set: function (oid, type, value) { return JSON.parse(__hostSet(String(oid), String(type), String(value))); }
+};
+
+var mqtt = {
+  publish: function (topic, payload, opts) {
+    opts = opts || {};
+    var text = (typeof payload === 'string') ? payload : JSON.stringify(payload);
+    return JSON.parse(__hostPublish(String(topic), String(text), !!opts.retain, opts.qos === 1 ? 1 : 0));
+  }
 };
 
 var mib = {

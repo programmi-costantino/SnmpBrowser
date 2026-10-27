@@ -25,6 +25,9 @@ public partial class PluginApprovalWindow : Window
             lines.Add("- Leggere valori dal dispositivo selezionato (Get / Walk).");
         if (plugin.Manifest.Permissions.Contains("snmp.write"))
             lines.Add("- Scrivere valori sul dispositivo (Set): ogni scrittura ti chiede comunque conferma.");
+        if (plugin.Manifest.Mqtt is { } mqtt)
+            lines.Add($"- Inviare messaggi MQTT al broker {mqtt.Host}:{mqtt.Port}{(mqtt.Tls ? " (TLS)" : "")} e a nessun altro indirizzo. Utente e password li inserisci tu.");
+        lines.Add("- Eseguire operazioni periodiche, ma solo dopo che le avvii dal menu Plugin (senza scritture SNMP).");
         if (!plugin.Manifest.Permissions.Any(p => p.StartsWith("snmp.", StringComparison.Ordinal)))
             lines.Add("- Non ha accesso al dispositivo: lavora solo sui risultati che gli passa l'app.");
         PermText.Text = string.Join("\n", lines);
