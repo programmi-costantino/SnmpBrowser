@@ -27,7 +27,8 @@
                         <DataGridTextColumn Header="Modulo" Binding="{Binding Name}" Width="200" />
                         <DataGridTextColumn Header="Simboli" Binding="{Binding SymbolCount}" Width="80" />
                         <DataGridTextColumn Header="Stato" Binding="{Binding StatusText}" Width="*" />
-                        <DataGridTextColumn Header="File" Binding="{Binding FileName}" Width="200" />
+                        <DataGridTextColumn Header="Origine" Binding="{Binding OriginText}" Width="150" />
+                        <DataGridTextColumn Header="File" Binding="{Binding FileName}" Width="160" />
                     </DataGrid.Columns>
                 </DataGrid>
                 <TextBlock x:Name="EmptyText" HorizontalAlignment="Center" VerticalAlignment="Center"

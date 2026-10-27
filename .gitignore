@@ -2,3 +2,6 @@ bin/
 obj/
 .vs/
 *.user
+
+# MinGit scaricata da tools/get-mingit.ps1
+git/

@@ -53,6 +53,12 @@ public partial class MibWindow : Window
             return;
         }
 
+        if (module.Origin.Length > 0)
+        {
+            MessageText.Text = $"{module.Name} e' gestito dal repository MIB: rimuovilo da 'Repository MIB'.";
+            return;
+        }
+
         MibStore.Instance.Remove(module.Name);
         Reload();
         MessageText.Text = $"Modulo {module.Name} rimosso.";

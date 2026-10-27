@@ -22,6 +22,8 @@ public sealed class MibModuleInfo
     public string FilePath { get; init; } = "";
     public string FileName => Path.GetFileName(FilePath);
     public int SymbolCount { get; init; }
+    public string Origin { get; init; } = "";
+    public string OriginText => Origin.Length == 0 ? "locale" : $"repository: {Origin}";
     public string StatusText { get; init; } = "OK";
     public bool IsOk { get; init; } = true;
 }

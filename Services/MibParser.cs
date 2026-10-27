@@ -16,6 +16,7 @@ internal sealed class ParsedModule
 {
     public string Name = "";
     public string FilePath = "";
+    public string? Source;
     public List<RawDef> Defs = new();
     public List<string> Imports = new();
 }

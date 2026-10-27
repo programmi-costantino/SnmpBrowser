@@ -54,6 +54,7 @@ public partial class App : Application
     {
         ApplyTheme(LoadPreference() ?? SystemPrefersDark());
         Services.MibStore.Instance.LoadStartup();
+        Services.MibRepoService.LoadInstalled();
         base.OnStartup(e);
     }
 

@@ -13,6 +13,11 @@
     <Using Include="System.IO" />
   </ItemGroup>
 
+  <!-- MinGit incluso nell'app (cartella "git", creata da tools/get-mingit.ps1) -->
+  <ItemGroup>
+    <None Include="git\**\*" CopyToOutputDirectory="PreserveNewest" LinkBase="git" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Lextm.SharpSnmpLib" Version="12.5.*" />
   </ItemGroup>

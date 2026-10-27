@@ -196,6 +196,47 @@ public sealed class MibStore
 
     public event Action? Changed;
 
+    /// <summary>
+    /// Carica le MIB di una sorgente esterna (es. un modulo del repository MIB) senza copiarle:
+    /// sostituisce quanto caricato in precedenza dalla stessa sorgente.
+    /// </summary>
+    public void ReplaceSource(string source, IEnumerable<string> files)
+    {
+        lock (_gate)
+        {
+            _modules.RemoveAll(m => m.Source == source);
+
+            foreach (var file in files)
+            {
+                try
+                {
+                    foreach (var module in MibParser.Parse(File.ReadAllText(file), file))
+                    {
+                        module.Source = source;
+                        _modules.RemoveAll(m => string.Equals(m.Name, module.Name, StringComparison.OrdinalIgnoreCase));
+                        _modules.Add(module);
+                    }
+                }
+                catch
+                {
+                    // file illeggibile: saltato
+                }
+            }
+            Rebuild();
+        }
+        Changed?.Invoke();
+    }
+
+    public void RemoveSource(string source)
+    {
+        lock (_gate)
+        {
+            _modules.RemoveAll(m => m.Source == source);
+            Rebuild();
+        }
+        Changed?.Invoke();
+    }
+
     private static void TryDeleteUserFile(string path)
     {
         try
@@ -287,6 +328,7 @@ public sealed class MibStore
             {
                 Name = module.Name,
                 FilePath = module.FilePath,
+                Origin = module.Source ?? "",
                 SymbolCount = counts[module],
                 StatusText = status,
                 IsOk = unresolved == 0,
