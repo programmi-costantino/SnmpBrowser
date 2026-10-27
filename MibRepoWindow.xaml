@@ -1,7 +1,7 @@
 <Window x:Class="SnmpBrowser.MibRepoWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Repository MIB e plugin" Width="1160" Height="640" MinWidth="940" MinHeight="460"
+        Title="Repository MIB e plugin" Width="1280" Height="640" MinWidth="1000" MinHeight="460"
         WindowStartupLocation="CenterOwner" FontFamily="Segoe UI"
         Background="{DynamicResource BgBrush}" Foreground="{DynamicResource TextBrush}"
         Loaded="Window_Loaded">

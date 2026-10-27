@@ -16,6 +16,24 @@
             </StackPanel>
         </Border>
 
+        <Border Style="{StaticResource Card}" Margin="0,10,0,0">
+            <StackPanel>
+                <TextBlock Text="ALTRE VERSIONI" Style="{StaticResource FieldLabel}" />
+                <TextBlock x:Name="VersionsHint" TextWrapping="Wrap" FontSize="12"
+                           Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,6" />
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <ComboBox x:Name="VersionsBox" DisplayMemberPath="Text" MinHeight="30"
+                              SelectionChanged="VersionsBox_SelectionChanged" />
+                    <Button x:Name="VersionButton" Grid.Column="1" Content="Installa questa versione" Margin="8,0,0,0"
+                            IsEnabled="False" Click="VersionButton_Click" />
+                </Grid>
+            </StackPanel>
+        </Border>
+
         <CheckBox x:Name="AutoBox" Content="Controlla gli aggiornamenti all'avvio" Margin="0,12,0,0"
                   Foreground="{DynamicResource TextBrush}" Click="AutoBox_Click" />
         <TextBlock Margin="0,6,0,0" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}"

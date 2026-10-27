@@ -1,6 +1,7 @@
 using System.Net.Http;
 using System.Reflection;
 using Velopack;
+using Velopack.Logging;
 using Velopack.Sources;
 
 namespace SnmpBrowser.Services;
@@ -17,8 +18,10 @@ public static class UpdateService
     private static readonly string SettingsFile = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SnmpBrowser", "update-auto-check.txt");
 
+    private static IUpdateSource? _source;
     private static UpdateManager? _manager;
     private static UpdateInfo? _pending;
+    private static List<VelopackAsset> _fullAssets = new();
     private static bool _downloaded;
 
     /// <summary>Cambia quando si trova o si scarica un aggiornamento. Puo' arrivare da qualsiasi thread.</summary>
@@ -30,7 +33,8 @@ public static class UpdateService
     private static UpdateManager? Manager()
     {
         if (RepoUrl.Contains("CHANGE-ME", StringComparison.Ordinal)) return null;
-        return _manager ??= new UpdateManager(new GithubSource(RepoUrl, null, prerelease: false));
+        _source ??= new GithubSource(RepoUrl, null, prerelease: false);
+        return _manager ??= new UpdateManager(_source);
     }
 
     public static bool IsInstalled
@@ -131,6 +135,54 @@ public static class UpdateService
         {
             return Describe(ex);
         }
+    }
+
+    /// <summary>Una versione dell'app pubblicata su GitHub.</summary>
+    public sealed record VersionChoice(string Version, string Text, bool IsCurrent);
+
+    /// <summary>Elenco di tutte le versioni pubblicate (dalla piu' recente), anche quelle precedenti a quella installata.</summary>
+    public static async Task<(List<VersionChoice> Versions, string? Error)> ListVersionsAsync()
+    {
+        var manager = Manager();
+        if (manager is null || _source is null) return (new List<VersionChoice>(), "Repository degli aggiornamenti non configurato.");
+        if (!manager.IsInstalled)
+            return (new List<VersionChoice>(), "Il cambio di versione funziona solo nella versione installata, non da Visual Studio.");
+
+        try
+        {
+            var feed = await _source.GetReleaseFeed(NullVelopackLogger.Instance, manager.AppId, channel: null);
+            var full = feed.Assets.Where(a => a.Type == VelopackAssetType.Full).ToList();
+            full.Sort((a, b) => RepoCatalog.CompareVersions(b.Version.ToString(), a.Version.ToString()));
+            _fullAssets = full;
+
+            var current = CurrentVersion;
+            var list = full.Select((a, i) =>
+            {
+                var v = a.Version.ToString();
+                var isCurrent = v == current;
+                var suffix = isCurrent ? "  (attuale)" : i == 0 ? "  (ultima)" : "";
+                return new VersionChoice(v, v + suffix, isCurrent);
+            }).ToList();
+
+            return (list, list.Count == 0 ? "Nessuna versione trovata nelle release." : null);
+        }
+        catch (Exception ex)
+        {
+            return (new List<VersionChoice>(), Describe(ex));
+        }
+    }
+
+    public static bool IsOlderThanCurrent(string version) => RepoCatalog.CompareVersions(version, CurrentVersion) < 0;
+
+    /// <summary>Sceglie la versione da installare (anche precedente); poi DownloadAsync e ApplyAndRestart. Restituisce l'errore, o null.</summary>
+    public static string? SelectVersion(string version)
+    {
+        var target = _fullAssets.FirstOrDefault(a => a.Version.ToString() == version);
+        if (Manager() is null || target is null) return "Versione non trovata: riapri la finestra per ricaricare l'elenco.";
+
+        _pending = new UpdateInfo(target, IsOlderThanCurrent(version));
+        _downloaded = false;
+        return null;
     }
 
     /// <summary>Chiude l'app, installa l'aggiornamento scaricato e la riapre.</summary>

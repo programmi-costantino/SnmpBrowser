@@ -57,23 +57,39 @@ public partial class CatalogPanel : UserControl
 
     private void OnPluginsChanged() => Dispatcher.BeginInvoke(RefreshPluginInfo);
 
-    /// <summary>Carica l'elenco la prima volta che la scheda viene mostrata.</summary>
+    private static readonly Dictionary<string, DateTime> LastAutoSync = new();
+    private static readonly TimeSpan AutoSyncEvery = TimeSpan.FromMinutes(15);
+
+    /// <summary>Carica l'elenco la prima volta che la scheda viene mostrata e lo aggiorna da solo (al massimo ogni 15 minuti).</summary>
     public async Task EnsureInitializedAsync()
     {
         if (_initialized) return;
         _initialized = true;
 
-        // elenco dai cloni locali (senza rete); se non c'e' ancora nulla, scarico il repository centrale
+        // prima l'elenco dai cloni locali e dalle versioni ricordate (istantaneo, anche senza rete)
         await ReloadAsync(centralRemote: false, personalRemote: false);
 
-        if (_items.Count == 0 && !_central.IsCloned && RepoCatalog.ValidateUrl(UrlBox.Text) is null)
-            await ReloadAsync(centralRemote: true, personalRemote: true);
+        // poi l'aggiornamento automatico dalla rete: non serve piu' premere "Aggiorna elenco" a ogni apertura
+        var key = _central.Profile.Key;
+        var canSync = RepoCatalog.ValidateUrl(UrlBox.Text) is null || _personal.All.Count > 0;
+        var stale = !LastAutoSync.TryGetValue(key, out var last) || DateTime.UtcNow - last > AutoSyncEvery;
+
+        if (canSync && stale)
+        {
+            LastAutoSync[key] = DateTime.UtcNow;
+            await ReloadAsync(centralRemote: true, personalRemote: true, automatic: true);
+        }
         else if (_items.Count == 0)
+        {
             MessageText.Text = "Inserisci l'URL del repository centrale e premi \"Aggiorna elenco\", oppure aggiungi una sorgente personale.";
+        }
     }
 
-    private async void SyncButton_Click(object sender, RoutedEventArgs e) =>
+    private async void SyncButton_Click(object sender, RoutedEventArgs e)
+    {
+        LastAutoSync[_central.Profile.Key] = DateTime.UtcNow;
         await ReloadAsync(centralRemote: true, personalRemote: true);
+    }
 
     private async void AddPersonalButton_Click(object sender, RoutedEventArgs e)
     {
@@ -94,7 +110,7 @@ public partial class CatalogPanel : UserControl
     }
 
     /// <summary>Ricostruisce la tabella: repository centrale + sorgenti personali.</summary>
-    private async Task ReloadAsync(bool centralRemote, bool personalRemote)
+    private async Task ReloadAsync(bool centralRemote, bool personalRemote, bool automatic = false)
     {
         if (_busy) return;
         SetBusy(true);
@@ -111,22 +127,40 @@ public partial class CatalogPanel : UserControl
                 var (items, error) = await _central.SyncAsync(UrlBox.Text);
                 all.AddRange(items);
                 centralError = error;
+
+                // senza rete il repository non si aggiorna, ma l'elenco gia' scaricato resta visibile
+                if (error is not null && items.Count == 0 && _central.IsCloned)
+                    all.AddRange(await _central.LoadLocalAsync());
             }
             else
             {
                 if (_central.IsCloned) all.AddRange(await _central.LoadLocalAsync());
-                if (centralRemote) centralError = urlError;
+                if (centralRemote && !automatic) centralError = urlError;
             }
 
             var personal = await _personal.LoadItemsAsync(personalRemote);
             all.AddRange(personal);
             if (_isPlugin) all.AddRange(LocalPluginStore.ListItems());
+
+            // se l'utente aveva scelto una versione nel menu, la mantengo anche dopo l'aggiornamento
+            var previous = new Dictionary<string, string?>();
+            foreach (var old in _items) previous.TryAdd(RowKey(old), old.SelectedVersion);
+            foreach (var item in all)
+            {
+                if (previous.TryGetValue(RowKey(item), out var chosen) && chosen is not null &&
+                    chosen != item.SelectedVersion && item.Versions.Contains(chosen))
+                    item.SelectedVersion = chosen;
+            }
+
             SetItems(all);
 
             // se usi solo sorgenti personali non ti ripeto che il repository centrale non e' configurato
             var skipCentralNag = personal.Count > 0 && UrlBox.Text.Contains("CHANGE-ME", StringComparison.Ordinal);
             var parts = new List<string>();
-            if (centralError is not null && !skipCentralNag) parts.Add($"Repository centrale: {centralError}");
+            if (centralError is not null && !skipCentralNag)
+                parts.Add(automatic
+                    ? $"Impossibile aggiornare l'elenco ({centralError}): mostro l'ultima copia salvata."
+                    : $"Repository centrale: {centralError}");
             if (centralRemote || personalRemote) parts.Add($"{all.Count} pacchetti disponibili.");
 
             MessageText.Text = string.Join(" ", parts);
@@ -140,6 +174,18 @@ public partial class CatalogPanel : UserControl
             SetBusy(false);
         }
     }
+
+    /// <summary>
+    /// Riporta subito nel modello la versione scelta dal menu (aggiorna pulsante e stato della riga):
+    /// non mi affido solo al binding, che dentro la tabella non aggiornava le righe gia' installate.
+    /// </summary>
+    private void VersionBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (sender is ComboBox { DataContext: MibPackageItem item, SelectedItem: string version } && item.SelectedVersion != version)
+            item.SelectedVersion = version;
+    }
+
+    private static string RowKey(MibPackageItem item) => $"{item.SourceId}|{item.IsLocal}|{item.Name}";
 
     private async void ApplyButton_Click(object sender, RoutedEventArgs e)
     {

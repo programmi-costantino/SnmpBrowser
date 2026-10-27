@@ -113,7 +113,7 @@ public sealed class MibPackageItem : INotifyPropertyChanged
             if (IsLocal) return "-";
             if (!IsInstalled) return "Installa";
             if (_selectedVersion == _installedVersion) return BranchSelected ? "Aggiorna" : "Installata";
-            return "Applica";
+            return BranchSelected ? "Applica" : $"Passa a {_selectedVersion}";
         }
     }
 

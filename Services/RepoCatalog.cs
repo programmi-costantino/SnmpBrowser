@@ -14,7 +14,13 @@ public sealed class RepoCatalog
 
     private readonly CatalogProfile _profile;
 
-    private RepoCatalog(CatalogProfile profile) => _profile = profile;
+    private readonly TagCache _tagCache;
+
+    private RepoCatalog(CatalogProfile profile)
+    {
+        _profile = profile;
+        _tagCache = new TagCache(Path.Combine(AppDir, profile.RepoDirName + "-tags.json"));
+    }
 
     public CatalogProfile Profile => _profile;
 
@@ -167,20 +173,31 @@ public sealed class RepoCatalog
                 var clone = await GitService.RunAsync(
                     new[] { "clone", "--depth", "1", "--no-recurse-submodules", "--", url, RepoDir }, AppDir, 300);
                 if (!clone.Ok) return (new List<MibPackageItem>(), $"Download del repository fallito: {clone.ErrorSummary()}");
+
+                await GitService.RunAsync(new[] { "submodule", "sync", "--quiet" }, RepoDir);
             }
             else
             {
                 var setUrl = await GitService.RunAsync(new[] { "remote", "set-url", "origin", url }, RepoDir);
                 if (!setUrl.Ok) return (new List<MibPackageItem>(), setUrl.ErrorSummary());
 
-                var fetch = await GitService.RunAsync(new[] { "fetch", "--depth", "1", "origin", "HEAD" }, RepoDir, 180);
-                if (!fetch.Ok) return (new List<MibPackageItem>(), $"Aggiornamento fallito: {fetch.ErrorSummary()}");
+                // una richiesta leggera basta a sapere se il repository centrale e' cambiato: se no, salto download e reset
+                var remoteHead = await GitService.RunAsync(new[] { "ls-remote", "--", url, "HEAD" }, RepoDir, 30);
+                var localHead = await GitService.RunAsync(new[] { "rev-parse", "HEAD" }, RepoDir);
+                var remoteSha = remoteHead.Ok ? remoteHead.Output.Trim().Split('\t')[0].Trim() : "";
+                var unchanged = remoteSha.Length > 0 && localHead.Ok && localHead.Output.Trim() == remoteSha;
 
-                var reset = await GitService.RunAsync(new[] { "reset", "--hard", "FETCH_HEAD" }, RepoDir);
-                if (!reset.Ok) return (new List<MibPackageItem>(), reset.ErrorSummary());
+                if (!unchanged)
+                {
+                    var fetch = await GitService.RunAsync(new[] { "fetch", "--depth", "1", "origin", "HEAD" }, RepoDir, 180);
+                    if (!fetch.Ok) return (new List<MibPackageItem>(), $"Aggiornamento fallito: {fetch.ErrorSummary()}");
+
+                    var reset = await GitService.RunAsync(new[] { "reset", "--hard", "FETCH_HEAD" }, RepoDir);
+                    if (!reset.Ok) return (new List<MibPackageItem>(), reset.ErrorSummary());
+
+                    await GitService.RunAsync(new[] { "submodule", "sync", "--quiet" }, RepoDir);
+                }
             }
-
-            await GitService.RunAsync(new[] { "submodule", "sync", "--quiet" }, RepoDir);
             SaveUrl(url);
         }
         catch (Exception ex)
@@ -196,7 +213,7 @@ public sealed class RepoCatalog
     {
         var entries = ReadGitmodules();
         var items = new List<MibPackageItem>();
-        using var gate = new SemaphoreSlim(4);
+        using var gate = new SemaphoreSlim(8);
 
         async Task<MibPackageItem> Build(Entry entry)
         {
@@ -209,23 +226,37 @@ public sealed class RepoCatalog
 
                 if (IsInstalledDir(entry.Path))
                 {
-                    if (allowRemote)
-                        await GitService.RunAsync(new[] { "fetch", "--tags", "--force", "--quiet", "origin" }, dir, 120);
-
                     var list = await GitService.RunAsync(new[] { "tag", "-l" }, dir);
-                    tags = list.Ok ? ParseTags(list.Output.Split('\n')) : new List<string>();
+                    var localTags = list.Ok ? list.Output.Split('\n') : Array.Empty<string>();
+
+                    // niente fetch: basta leggere l'elenco dei tag remoti (una richiesta leggera); gli oggetti
+                    // di un tag nuovo si scaricano solo quando lo installi
+                    IEnumerable<string> remoteTags = Array.Empty<string>();
+                    if (allowRemote)
+                    {
+                        var remote = await GitService.RunAsync(new[] { "ls-remote", "--tags", "--refs", "--", entry.Url }, null, 30);
+                        if (remote.Ok) remoteTags = RemoteTagNames(remote.Output);
+                    }
+
+                    tags = ParseTags(localTags.Concat(remoteTags));
                     item.InstalledVersion = await CurrentVersionAsync(dir);
                 }
                 else if (allowRemote)
                 {
-                    var remote = await GitService.RunAsync(new[] { "ls-remote", "--tags", "--refs", "--", entry.Url }, null, 60);
-                    tags = remote.Ok
-                        ? ParseTags(remote.Output.Split('\n').Select(l => l.Contains("refs/tags/") ? l[(l.IndexOf("refs/tags/") + 10)..] : ""))
-                        : new List<string>();
+                    var remote = await GitService.RunAsync(new[] { "ls-remote", "--tags", "--refs", "--", entry.Url }, null, 30);
+                    if (remote.Ok)
+                    {
+                        tags = ParseTags(RemoteTagNames(remote.Output));
+                        _tagCache.Set(entry.Name, tags);
+                    }
+                    else
+                    {
+                        tags = _tagCache.Get(entry.Name); // offline: ultime versioni note
+                    }
                 }
                 else
                 {
-                    tags = new List<string>();
+                    tags = _tagCache.Get(entry.Name); // versioni viste l'ultima volta che c'era la rete
                 }
 
                 item.SetVersions(tags);
@@ -242,6 +273,9 @@ public sealed class RepoCatalog
 
         return items.OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase).ToList();
     }
+
+    private static IEnumerable<string> RemoteTagNames(string output) =>
+        output.Split('\n').Select(l => l.Contains("refs/tags/") ? l[(l.IndexOf("refs/tags/") + 10)..] : "");
 
     private static List<string> ParseTags(IEnumerable<string> lines)
     {
@@ -280,10 +314,16 @@ public sealed class RepoCatalog
 
             if (tag is not null)
             {
-                var fetch = await GitService.RunAsync(new[] { "fetch", "--tags", "--force", "--quiet", "origin" }, dir, 180);
-                if (!fetch.Ok) return $"Recupero delle versioni fallito: {fetch.ErrorSummary()}";
+                // se il tag e' gia' nel clone (cambio tra versioni scaricate) non serve la rete
+                var haveTag = await GitService.RunAsync(new[] { "rev-parse", "--verify", "--quiet", $"refs/tags/{tag}^{{commit}}" }, dir);
+                if (!haveTag.Ok)
+                {
+                    var fetch = await GitService.RunAsync(new[] { "fetch", "--tags", "--force", "--quiet", "origin" }, dir, 180);
+                    if (!fetch.Ok) return $"Recupero delle versioni fallito: {fetch.ErrorSummary()}";
+                }
 
-                var checkout = await GitService.RunAsync(new[] { "checkout", "--quiet", "--detach", $"refs/tags/{tag}" }, dir);
+                // --force: la cartella e' solo una copia di lavoro, eventuali modifiche locali non devono bloccare il cambio
+                var checkout = await GitService.RunAsync(new[] { "checkout", "--quiet", "--force", "--detach", $"refs/tags/{tag}" }, dir);
                 if (!checkout.Ok) return $"Cambio versione fallito: {checkout.ErrorSummary()}";
             }
 

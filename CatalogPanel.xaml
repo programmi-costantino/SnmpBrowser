@@ -44,22 +44,23 @@
                 <DataGrid x:Name="PackagesGrid" AutoGenerateColumns="False" IsReadOnly="True"
                           SelectionMode="Single" HeadersVisibility="Column" RowHeight="38">
                     <DataGrid.Columns>
-                        <DataGridTextColumn Header="Pacchetto" Binding="{Binding Name}" Width="170" />
-                        <DataGridTextColumn Header="Sorgente" Binding="{Binding SourceText}" Width="80" />
-                        <DataGridTextColumn Header="Installata" Binding="{Binding InstalledText}" Width="90" />
-                        <DataGridTemplateColumn Header="Versione" Width="160">
+                        <DataGridTextColumn Header="Pacchetto" Binding="{Binding Name}" Width="150" />
+                        <DataGridTextColumn Header="Sorgente" Binding="{Binding SourceText}" Width="70" />
+                        <DataGridTextColumn Header="Installata" Binding="{Binding InstalledText}" Width="130" />
+                        <DataGridTemplateColumn Header="Versione" Width="150">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
                                     <ComboBox ItemsSource="{Binding Versions}"
-                                              SelectedItem="{Binding SelectedVersion, Mode=TwoWay}"
+                                              SelectedItem="{Binding SelectedVersion, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                              SelectionChanged="VersionBox_SelectionChanged"
                                               MinHeight="26" Padding="8,2,26,2" Margin="0,2"
                                               IsEnabled="{Binding IsBusy, Converter={x:Static local:InverseBool.Instance}}" />
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
-                        <DataGridTextColumn Header="Ultima" Binding="{Binding LatestText}" Width="80" />
-                        <DataGridTextColumn Header="Stato" Binding="{Binding StatusText}" Width="*" />
-                        <DataGridTemplateColumn Header="Azioni" Width="520">
+                        <DataGridTextColumn Header="Ultima" Binding="{Binding LatestText}" Width="130" />
+                        <DataGridTextColumn Header="Stato" Binding="{Binding StatusText}" Width="150" />
+                        <DataGridTemplateColumn Header="Azioni" Width="*" MinWidth="440">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
                                     <StackPanel Orientation="Horizontal">

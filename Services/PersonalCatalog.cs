@@ -27,7 +27,13 @@ public sealed class PersonalCatalog
 
     private readonly CatalogProfile _profile;
 
-    private PersonalCatalog(CatalogProfile profile) => _profile = profile;
+    private readonly TagCache _tagCache;
+
+    private PersonalCatalog(CatalogProfile profile)
+    {
+        _profile = profile;
+        _tagCache = new TagCache(Path.Combine(AppDir, profile.PersonalFileName + ".tags"));
+    }
 
     private const string BranchSuffix = MibPackageItem.BranchSuffix;
 
@@ -326,20 +332,36 @@ public sealed class PersonalCatalog
 
         if (IsCloned(dir))
         {
+            List<string>? remoteVersions = null;
+
+            // niente fetch: basta l'elenco di tag e branch remoti (una richiesta leggera); si scarica solo quando installi
             if (allowRemote)
             {
-                var fetch = await RunGitAsync(new[] { "fetch", "--tags", "--force", "--prune", "--quiet", "origin" }, dir, source.Url, token, 120);
-                if (!fetch.Ok) item.Error = Explain(fetch);
+                var remote = await RunGitAsync(new[] { "ls-remote", "--tags", "--heads", "--refs", "--", source.Url }, null, source.Url, token, 30);
+                if (remote.Ok) remoteVersions = ParseRemoteRefs(remote.Output);
+                else item.Error = Explain(remote);
             }
 
-            versions = await LocalRefsAsync(dir);
+            versions = remoteVersions ?? await LocalRefsAsync(dir);
             item.InstalledVersion = await CurrentRefAsync(dir);
         }
         else if (allowRemote && item.Error is null)
         {
             var remote = await RunGitAsync(new[] { "ls-remote", "--tags", "--heads", "--refs", "--", source.Url }, null, source.Url, token, 60);
-            if (remote.Ok) versions = ParseRemoteRefs(remote.Output);
-            else item.Error = Explain(remote);
+            if (remote.Ok)
+            {
+                versions = ParseRemoteRefs(remote.Output);
+                _tagCache.Set(source.Id, versions);
+            }
+            else
+            {
+                item.Error = Explain(remote);
+                versions = _tagCache.Get(source.Id);
+            }
+        }
+        else if (!allowRemote)
+        {
+            versions = _tagCache.Get(source.Id);
         }
 
         item.SetVersions(versions);
@@ -436,12 +458,18 @@ public sealed class PersonalCatalog
             }
             else
             {
-                var fetch = await RunGitAsync(new[] { "fetch", "--tags", "--force", "--prune", "--quiet", "origin" }, dir, source.Url, token, 180);
-                if (!fetch.Ok) return $"Aggiornamento di {source.Name} fallito: {Explain(fetch)}";
+                // un tag gia' presente nel clone si raggiunge senza rete; i branch vanno sempre aggiornati
+                var haveTag = !isBranch &&
+                    (await GitService.RunAsync(new[] { "rev-parse", "--verify", "--quiet", $"refs/tags/{refName}^{{commit}}" }, dir)).Ok;
+                if (!haveTag)
+                {
+                    var fetch = await RunGitAsync(new[] { "fetch", "--tags", "--force", "--prune", "--quiet", "origin" }, dir, source.Url, token, 180);
+                    if (!fetch.Ok) return $"Aggiornamento di {source.Name} fallito: {Explain(fetch)}";
+                }
             }
 
             var target = isBranch ? $"refs/remotes/origin/{refName}" : $"refs/tags/{refName}";
-            var checkout = await GitService.RunAsync(new[] { "checkout", "--quiet", "--detach", target }, dir);
+            var checkout = await GitService.RunAsync(new[] { "checkout", "--quiet", "--force", "--detach", target }, dir);
             if (!checkout.Ok) return $"Cambio versione fallito: {checkout.ErrorSummary()}";
 
             try
