@@ -12,7 +12,7 @@ namespace SnmpBrowser.Services;
 public static class UpdateService
 {
     /// <summary>Repository GitHub che pubblica le release (le crea il workflow .github/workflows/release.yml).</summary>
-    public const string RepoUrl = "https://github.com/programmi-costantino/snmpbrowser";
+    public const string RepoUrl = "https://github.com/programmi-costantino/SnmpBrowser";
 
     private static readonly string SettingsFile = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SnmpBrowser", "update-auto-check.txt");
