@@ -243,7 +243,7 @@ public static class MibRepoService
         return tags;
     }
 
-    private static async Task<string> CurrentVersionAsync(string dir)
+    internal static async Task<string> CurrentVersionAsync(string dir)
     {
         var exact = await GitService.RunAsync(new[] { "describe", "--tags", "--exact-match", "HEAD" }, dir);
         if (exact.Ok && exact.Output.Length > 0) return exact.Output;

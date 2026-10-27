@@ -5,3 +5,6 @@ obj/
 
 # MinGit scaricata da tools/get-mingit.ps1
 git/
+
+# Esempio di repo centrale MIB (solo per prove locali)
+example-central-git-repo/

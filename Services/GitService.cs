@@ -63,7 +63,8 @@ public static class GitService
         return File.Exists(programFiles) ? programFiles : null;
     }
 
-    public static async Task<GitResult> RunAsync(IEnumerable<string> args, string? workDir = null, int timeoutSeconds = 120)
+    public static async Task<GitResult> RunAsync(IEnumerable<string> args, string? workDir = null, int timeoutSeconds = 120,
+        IReadOnlyDictionary<string, string>? env = null)
     {
         var git = GitPath;
         if (git is null)
@@ -89,6 +90,8 @@ public static class GitService
             // niente prompt di credenziali e solo https: blocca file://, ssh, ext:: ecc. anche nei submodule
             psi.Environment["GIT_TERMINAL_PROMPT"] = "0";
             psi.Environment["GIT_ALLOW_PROTOCOL"] = "https";
+            if (env is not null)
+                foreach (var (key, value) in env) psi.Environment[key] = value;
 
             using var process = new Process { StartInfo = psi };
             process.Start();

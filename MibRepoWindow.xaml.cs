@@ -36,36 +36,72 @@ public partial class MibRepoWindow : Window
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
     {
-        // elenco dal clone locale (senza rete); se non c'e' ancora, scarico il repository
-        if (MibRepoService.IsCloned)
-        {
-            SetItems(await MibRepoService.LoadLocalAsync());
-        }
-        else if (MibRepoService.ValidateUrl(UrlBox.Text) is null)
-        {
-            await SyncAsync();
-        }
-        else
-        {
-            MessageText.Text = "Inserisci l'URL del tuo repository MIB e premi \"Aggiorna elenco\".";
-            UpdateEmpty();
-        }
+        // elenco dai cloni locali (senza rete); se non c'e' ancora nulla, scarico il repository centrale
+        await ReloadAsync(centralRemote: false, personalRemote: false);
+
+        if (_items.Count == 0 && !MibRepoService.IsCloned && MibRepoService.ValidateUrl(UrlBox.Text) is null)
+            await ReloadAsync(centralRemote: true, personalRemote: true);
+        else if (_items.Count == 0)
+            MessageText.Text = "Inserisci l'URL del repository centrale e premi \"Aggiorna elenco\", oppure aggiungi una sorgente personale.";
     }
 
-    private async void SyncButton_Click(object sender, RoutedEventArgs e) => await SyncAsync();
+    private async void SyncButton_Click(object sender, RoutedEventArgs e) =>
+        await ReloadAsync(centralRemote: true, personalRemote: true);
 
-    private async Task SyncAsync()
+    private async void AddPersonalButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy) return;
+        if (new PersonalSourceWindow { Owner = this }.ShowDialog() == true)
+            await ReloadAsync(centralRemote: false, personalRemote: true);
+    }
+
+    private async void EditButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy || (sender as FrameworkElement)?.DataContext is not MibPackageItem { IsPersonal: true } item) return;
+
+        var source = PersonalSourceService.Find(item.SourceId);
+        if (source is null) return;
+
+        if (new PersonalSourceWindow(source) { Owner = this }.ShowDialog() == true)
+            await ReloadAsync(centralRemote: false, personalRemote: true);
+    }
+
+    /// <summary>Ricostruisce la tabella: repository centrale + sorgenti personali.</summary>
+    private async Task ReloadAsync(bool centralRemote, bool personalRemote)
     {
         if (_busy) return;
         SetBusy(true);
-        MessageText.Text = "Aggiornamento dell'elenco in corso...";
+        MessageText.Text = centralRemote || personalRemote ? "Aggiornamento dell'elenco in corso..." : "";
 
         try
         {
-            var (items, error) = await MibRepoService.SyncAsync(UrlBox.Text);
-            SetItems(items);
+            var all = new List<MibPackageItem>();
+            string? centralError = null;
+            var urlError = MibRepoService.ValidateUrl(UrlBox.Text);
 
-            MessageText.Text = error ?? $"{items.Count} pacchetti disponibili.";
+            if (centralRemote && urlError is null)
+            {
+                var (items, error) = await MibRepoService.SyncAsync(UrlBox.Text);
+                all.AddRange(items);
+                centralError = error;
+            }
+            else
+            {
+                if (MibRepoService.IsCloned) all.AddRange(await MibRepoService.LoadLocalAsync());
+                if (centralRemote) centralError = urlError;
+            }
+
+            var personal = await PersonalSourceService.LoadItemsAsync(personalRemote);
+            all.AddRange(personal);
+            SetItems(all);
+
+            // se usi solo sorgenti personali non ti ripeto che il repository centrale non e' configurato
+            var skipCentralNag = personal.Count > 0 && UrlBox.Text.Contains("CHANGE-ME", StringComparison.Ordinal);
+            var parts = new List<string>();
+            if (centralError is not null && !skipCentralNag) parts.Add($"Repository centrale: {centralError}");
+            if (centralRemote || personalRemote) parts.Add($"{all.Count} pacchetti disponibili.");
+
+            MessageText.Text = string.Join(" ", parts);
         }
         catch (Exception ex)
         {
@@ -87,8 +123,11 @@ public partial class MibRepoWindow : Window
 
         try
         {
-            var error = await MibRepoService.InstallAsync(item, tag);
+            var error = item.IsPersonal
+                ? await PersonalSourceService.InstallAsync(item, tag)
+                : await MibRepoService.InstallAsync(item, tag);
             MessageText.Text = error ?? $"{item.Name} {item.InstalledVersion} installato.";
+            if (error is not null) item.Error = null;
         }
         finally
         {
@@ -106,7 +145,9 @@ public partial class MibRepoWindow : Window
 
         try
         {
-            var error = await MibRepoService.RemoveAsync(item);
+            var error = item.IsPersonal
+                ? await PersonalSourceService.RemoveAsync(item)
+                : await MibRepoService.RemoveAsync(item);
             MessageText.Text = error ?? $"{item.Name} rimosso.";
         }
         finally
@@ -130,6 +171,7 @@ public partial class MibRepoWindow : Window
     {
         _busy = busy;
         SyncButton.IsEnabled = !busy;
+        AddPersonalButton.IsEnabled = !busy;
         UrlBox.IsEnabled = !busy;
         Cursor = busy ? System.Windows.Input.Cursors.Wait : null;
     }
