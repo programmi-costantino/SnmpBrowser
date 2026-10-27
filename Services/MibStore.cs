@@ -55,6 +55,7 @@ public sealed class MibStore
     private Dictionary<string, MibSymbol> _byOid = new();
     private Dictionary<string, MibSymbol> _byName = new();
     private Dictionary<string, MibSymbol> _byQualified = new();
+    private Dictionary<string, TcDef> _tcs = new();
 
     public IReadOnlyList<MibModuleInfo> Modules { get; private set; } = Array.Empty<MibModuleInfo>();
     public int SymbolCount => _byOid.Count;
@@ -335,6 +336,10 @@ public sealed class MibStore
             });
         }
 
+        var tcs = new Dictionary<string, TcDef>();
+        foreach (var tc in _modules.SelectMany(m => m.Tcs)) tcs.TryAdd(tc.Name, tc);
+
+        _tcs = tcs;
         _byOid = byOid;
         _byName = byName;
         _byQualified = byQualified;
@@ -450,15 +455,117 @@ public sealed class MibStore
 
     // ---- Decodifica e descrizione ----------------------------------------
 
-    /// <summary>Per gli Integer32 con enumerazione mostra "up(1)" invece di "1".</summary>
+    private static readonly Dictionary<int, string> TruthValueEnums = new() { [1] = "true", [2] = "false" };
+
+    private static readonly System.Globalization.CultureInfo Inv = System.Globalization.CultureInfo.InvariantCulture;
+
+    /// <summary>
+    /// Rende leggibile il valore grezzo usando la MIB: enumerazioni ("up(1)"), scala della DISPLAY-HINT
+    /// (452 -> 45.2), unita' di misura ("-67 dBm", "866.7 Mbit/s") e indirizzi MAC. Senza MIB restituisce il valore grezzo.
+    /// </summary>
     public string DecorateValue(string oid, string type, string raw)
     {
-        if (type != "Integer32") return raw;
-
         var symbol = Lookup(oid, out _);
-        if (symbol is null || symbol.Enums.Count == 0) return raw;
+        if (symbol is null || symbol.Kind != "OBJECT-TYPE") return raw;
 
-        return int.TryParse(raw, out var n) && symbol.Enums.TryGetValue(n, out var label) ? $"{label}({n})" : raw;
+        var syntaxName = SyntaxName(symbol.Syntax);
+        TcDef? tc = null;
+        if (syntaxName.Length > 0) _tcs.TryGetValue(syntaxName, out tc);
+
+        if (type == "Integer32")
+        {
+            var enums = symbol.Enums.Count > 0 ? symbol.Enums
+                : tc is { Enums.Count: > 0 } ? tc.Enums
+                : syntaxName == "TruthValue" ? TruthValueEnums
+                : null;
+
+            if (enums is not null)
+                return int.TryParse(raw, out var n) && enums.TryGetValue(n, out var label) ? $"{label}({n})" : raw;
+        }
+
+        if (type == "OctetString" && (syntaxName == "MacAddress" || syntaxName == "PhysAddress"))
+            return FormatMac(raw) ?? raw;
+
+        if (type is not ("Integer32" or "Gauge32" or "Counter32" or "Counter64")) return raw;
+        if (!decimal.TryParse(raw, System.Globalization.NumberStyles.Integer, Inv, out var number)) return raw;
+
+        var hint = tc?.Hint;
+        var text = raw;
+        var shown = number;
+
+        if (hint is not null)
+        {
+            var scale = Regex.Match(hint, @"^d-(?<n>\d{1,2})$");
+            if (scale.Success)
+            {
+                var digits = int.Parse(scale.Groups["n"].Value);
+                shown = number / (decimal)Math.Pow(10, digits);
+                text = shown.ToString("F" + digits, Inv);
+            }
+            else if (hint.StartsWith('x') && number >= 0)
+            {
+                text = "0x" + ((ulong)number).ToString("X");
+            }
+        }
+
+        return WithUnits(text, shown, symbol.Units);
+    }
+
+    private static string SyntaxName(string? syntax)
+    {
+        if (string.IsNullOrWhiteSpace(syntax)) return "";
+        var first = syntax.Trim().Split(' ', '(', '{')[0];
+        return first;
+    }
+
+    private static string? FormatMac(string raw)
+    {
+        var hex = new string(raw.Where(Uri.IsHexDigit).ToArray());
+        if (hex.Length != 12 || raw.Any(c => char.IsLetterOrDigit(c) && !Uri.IsHexDigit(c))) return null;
+        return string.Join(':', Enumerable.Range(0, 6).Select(i => hex.Substring(i * 2, 2).ToUpperInvariant()));
+    }
+
+    /// <summary>Aggiunge l'unita' di misura; per bit/s, byte e date UNIX sceglie la forma piu' leggibile.</summary>
+    private static string WithUnits(string text, decimal value, string? units)
+    {
+        if (string.IsNullOrWhiteSpace(units)) return text;
+        var u = units.Trim();
+        var lower = u.ToLowerInvariant();
+
+        if (lower is "bits/second" or "bits per second" or "bit/s" or "bps")
+        {
+            string[] names = { "bit/s", "kbit/s", "Mbit/s", "Gbit/s" };
+            return Scaled(value, 1000m, names);
+        }
+
+        if (lower is "bytes" or "byte")
+        {
+            string[] names = { "B", "KiB", "MiB", "GiB", "TiB" };
+            return Scaled(value, 1024m, names);
+        }
+
+        if (lower.StartsWith("seconds since 1970", StringComparison.Ordinal) || lower is "unix time")
+        {
+            if (value is >= 1 and < 4102444800m)
+                return DateTimeOffset.FromUnixTimeSeconds((long)value).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss", Inv);
+            return text;
+        }
+
+        if (lower is "c" or "celsius" or "degrees celsius") u = "\u00B0C";
+        return $"{text} {u}";
+    }
+
+    private static string Scaled(decimal value, decimal step, string[] names)
+    {
+        var v = value;
+        var i = 0;
+        while (Math.Abs(v) >= step && i < names.Length - 1)
+        {
+            v /= step;
+            i++;
+        }
+        var number = i == 0 ? v.ToString("0.##", Inv) : v.ToString("0.#", Inv);
+        return $"{number} {names[i]}";
     }
 
     /// <summary>Testo descrittivo (nome, modulo, tipo, accesso, descrizione) per il pannello di dettaglio.</summary>

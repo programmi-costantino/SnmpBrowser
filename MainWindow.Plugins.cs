@@ -230,10 +230,11 @@ public partial class MainWindow
         try
         {
             var sb = new StringBuilder();
-            sb.Append("Nome;OID;Tipo;Valore\r\n");
+            sb.Append("Nome;OID;Tipo;Valore;Valore grezzo\r\n");
             foreach (var r in VisibleEntries())
                 sb.Append(CsvCell(r.Name)).Append(';').Append(CsvCell(r.Oid)).Append(';')
-                  .Append(CsvCell(r.Type)).Append(';').Append(CsvCell(r.Value)).Append("\r\n");
+                  .Append(CsvCell(r.Type)).Append(';').Append(CsvCell(r.Value)).Append(';')
+                  .Append(CsvCell(r.Raw ?? r.Value)).Append("\r\n");
 
             File.WriteAllText(path, sb.ToString(), new UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
             SetStatus($"Esportato in {path}", OkBrush);

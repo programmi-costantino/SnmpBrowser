@@ -12,8 +12,17 @@ internal sealed class RawDef
     public Dictionary<int, string> Enums = new();
 }
 
+/// <summary>Una TEXTUAL-CONVENTION: serve per sapere come mostrare i valori (scala, enumerazioni).</summary>
+internal sealed class TcDef
+{
+    public string Name = "";
+    public string? Hint;
+    public Dictionary<int, string> Enums = new();
+}
+
 internal sealed class ParsedModule
 {
+    public List<TcDef> Tcs = new();
     public string Name = "";
     public string FilePath = "";
     public string? Source;
@@ -49,6 +58,12 @@ internal static class MibParser
     private static readonly Regex SyntaxRx = new(
         @"\bSYNTAX\s+(?<s>.*?)(?=\s+(?:UNITS|MAX-ACCESS|ACCESS|STATUS|DESCRIPTION|REFERENCE|INDEX|AUGMENTS|DEFVAL)\b|\s*$)",
         RegexOptions.Compiled | RegexOptions.Singleline);
+
+    private static readonly Regex TcRx = new(
+        @"(?<![A-Za-z0-9_-])(?<name>[A-Z][A-Za-z0-9_-]*)\s*::=\s*TEXTUAL-CONVENTION\b",
+        RegexOptions.Compiled);
+
+    private static readonly Regex HintRx = new(@"\bDISPLAY-HINT\s+""#(?<i>\d+)""", RegexOptions.Compiled);
 
     private static readonly Regex AccessRx = new(@"\b(?:MAX-ACCESS|ACCESS)\s+(?<a>[a-z-]+)", RegexOptions.Compiled);
     private static readonly Regex StatusRx = new(@"\bSTATUS\s+(?<a>[a-z-]+)", RegexOptions.Compiled);
@@ -93,6 +108,12 @@ internal static class MibParser
             foreach (Match m in MacroRx.Matches(body))
                 module.Defs.Add(BuildMacroDef(m, strings));
 
+            foreach (Match m in TcRx.Matches(body))
+            {
+                var tc = BuildTc(body, m, strings);
+                if (tc is not null) module.Tcs.Add(tc);
+            }
+
             foreach (Match m in TrapRx.Matches(body))
             {
                 module.Defs.Add(new RawDef
@@ -107,6 +128,32 @@ internal static class MibParser
             modules.Add(module);
         }
         return modules;
+    }
+
+    /// <summary>Legge DISPLAY-HINT ed eventuale enumerazione della convenzione, fermandosi alla definizione successiva.</summary>
+    private static TcDef? BuildTc(string body, Match m, List<string> strings)
+    {
+        var start = m.Index + m.Length;
+        var next = body.IndexOf("::=", start, StringComparison.Ordinal);
+        var slice = next < 0 ? body[start..] : body[start..next];
+
+        var syntax = slice.IndexOf("SYNTAX", StringComparison.Ordinal);
+        if (syntax < 0) return null;
+
+        var tc = new TcDef { Name = m.Groups["name"].Value };
+
+        var hint = HintRx.Match(slice[..syntax]);
+        if (hint.Success) tc.Hint = Str(hint, strings);
+
+        var after = slice[(syntax + "SYNTAX".Length)..];
+        var open = after.IndexOf('{');
+        var close = after.IndexOf('}');
+        if (open >= 0 && close > open && Regex.IsMatch(after[..open], @"^\s*(?:INTEGER|BITS|Integer32|ENUMERATED)?\s*$"))
+        {
+            foreach (Match e in EnumRx.Matches(after[open..close]))
+                tc.Enums[int.Parse(e.Groups["v"].Value)] = e.Groups["n"].Value;
+        }
+        return tc;
     }
 
     private static RawDef BuildMacroDef(Match m, List<string> strings)

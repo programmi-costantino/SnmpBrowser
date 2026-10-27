@@ -459,6 +459,11 @@ public partial class MainWindow : Window
         CopyButton.IsEnabled = entry is not null;
 
         var info = entry is null ? null : MibStore.Instance.Describe(entry.Oid);
+
+        // se il valore e' stato tradotto (scala, unita', nome) mostro anche quello originale
+        if (entry?.Raw is { Length: > 0 } raw && raw != entry.Value)
+            info = info is null ? $"Valore grezzo: {raw}" : $"Valore grezzo: {raw}\n{info}";
+
         DetInfo.Text = info ?? "";
         DetInfo.Visibility = info is null ? Visibility.Collapsed : Visibility.Visible;
     }

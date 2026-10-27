@@ -40,7 +40,7 @@ public sealed class MibPackageItem : INotifyPropertyChanged
         _pluginState = stateText;
         _pluginActionText = actionText;
         _pluginActionVisible = actionVisible;
-        Notify();
+        Notify(nameof(PluginActionText), nameof(PluginActionVisible), nameof(StatusText));
     }
 
     /// <summary>Id della sorgente personale; null per i pacchetti del repository centrale.</summary>
@@ -55,7 +55,7 @@ public sealed class MibPackageItem : INotifyPropertyChanged
     public void SetPluginMqtt(bool visible)
     {
         _pluginMqtt = visible;
-        Notify();
+        Notify(nameof(PluginMqttVisible));
     }
 
     public bool IsPersonal => SourceId is not null;
@@ -67,25 +67,35 @@ public sealed class MibPackageItem : INotifyPropertyChanged
     public string? SelectedVersion
     {
         get => _selectedVersion;
-        set { _selectedVersion = value; Notify(); }
+        set
+        {
+            if (_selectedVersion == value) return;
+            _selectedVersion = value;
+            Notify(nameof(SelectedVersion), nameof(ActionText), nameof(CanApply));
+        }
     }
 
     public string? InstalledVersion
     {
         get => _installedVersion;
-        set { _installedVersion = value; Notify(); }
+        set
+        {
+            _installedVersion = value;
+            Notify(nameof(InstalledVersion), nameof(InstalledText), nameof(IsInstalled), nameof(ActionText),
+                nameof(CanApply), nameof(CanRemove), nameof(StatusText));
+        }
     }
 
     public string? Error
     {
         get => _error;
-        set { _error = value; Notify(); }
+        set { _error = value; Notify(nameof(Error), nameof(StatusText)); }
     }
 
     public bool IsBusy
     {
         get => _isBusy;
-        private set { _isBusy = value; Notify(); }
+        private set { _isBusy = value; Notify(nameof(IsBusy), nameof(CanApply), nameof(CanRemove), nameof(StatusText)); }
     }
 
     /// <summary>Ultima versione taggata (i branch non contano come "ultima").</summary>
@@ -144,11 +154,17 @@ public sealed class MibPackageItem : INotifyPropertyChanged
             _selectedVersion = _installedVersion is not null && Versions.Contains(_installedVersion)
                 ? _installedVersion
                 : Latest ?? Versions.FirstOrDefault();
-        Notify();
+        Notify(nameof(SelectedVersion), nameof(LatestText), nameof(ActionText), nameof(CanApply), nameof(StatusText));
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    // stringa vuota = "tutte le proprieta' sono cambiate"
-    private void Notify() => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(string.Empty));
+    /// <summary>
+    /// Notifica solo le proprieta' indicate. Non uso la notifica "tutto e' cambiato": con ComboBox legati a
+    /// ItemsSource/SelectedItem puo' far ricaricare l'elenco e perdere la versione scelta dall'utente.
+    /// </summary>
+    private void Notify(params string[] names)
+    {
+        foreach (var name in names) PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
 }

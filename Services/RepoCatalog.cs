@@ -287,8 +287,21 @@ public sealed class RepoCatalog
                 if (!checkout.Ok) return $"Cambio versione fallito: {checkout.ErrorSummary()}";
             }
 
-            item.InstalledVersion = await CurrentVersionAsync(dir);
-            item.SelectedVersion = item.InstalledVersion;
+            var current = await CurrentVersionAsync(dir);
+
+            if (tag is not null)
+            {
+                // controllo finale sui commit (piu' tag possono puntare allo stesso commit):
+                // la versione presente deve essere esattamente quella richiesta
+                var head = await GitService.RunAsync(new[] { "rev-parse", "HEAD" }, dir);
+                var wanted = await GitService.RunAsync(new[] { "rev-parse", $"refs/tags/{tag}^{{commit}}" }, dir);
+                if (!head.Ok || !wanted.Ok || head.Output.Trim() != wanted.Output.Trim())
+                    return $"Richiesta la versione {tag}, ma risulta installata {current}.";
+                current = tag;
+            }
+
+            item.InstalledVersion = current;
+            item.SelectedVersion = current;
             _profile.Activate(item.Name, dir);
             return null;
         }
