@@ -4,14 +4,15 @@ name: Release
 
 on:
   push:
-    tags: ['v*']
+    tags: ["v*"]
 
 permissions:
   contents: write
 
 jobs:
   release:
-    runs-on: windows-latest
+    runs-on:
+      group: "nuovoserver"
     env:
       REPO_URL: https://github.com/${{ github.repository }}
     steps:
@@ -19,7 +20,7 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: "8.0.x"
 
       - name: Versione dal tag
         shell: pwsh
