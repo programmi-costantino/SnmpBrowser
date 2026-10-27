@@ -163,27 +163,39 @@
                                Margin="14,12,14,8" />
                     <TreeView x:Name="OidTree" Margin="6,0,6,6" SelectedItemChanged="OidTree_SelectedItemChanged">
                         <TreeView.ItemContainerStyle>
-                            <Style TargetType="TreeViewItem">
+                            <Style TargetType="TreeViewItem" BasedOn="{StaticResource {x:Type TreeViewItem}}">
                                 <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
-                                <Setter Property="Padding" Value="2,3" />
                             </Style>
                         </TreeView.ItemContainerStyle>
                         <TreeView.ItemTemplate>
                             <HierarchicalDataTemplate ItemsSource="{Binding Children}">
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock FontFamily="Segoe MDL2 Assets" VerticalAlignment="Center"
-                                               Margin="0,0,8,0" Text="&#xE8B7;" Foreground="#F59E0B">
-                                        <TextBlock.Style>
-                                            <Style TargetType="TextBlock">
-                                                <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding Children.Count}" Value="0">
-                                                        <Setter Property="Text" Value="&#xE8A5;" />
-                                                        <Setter Property="Foreground" Value="#2563EB" />
-                                                    </DataTrigger>
-                                                </Style.Triggers>
-                                            </Style>
-                                        </TextBlock.Style>
-                                    </TextBlock>
+                                    <Grid Width="16" Height="16" Margin="0,0,7,0" VerticalAlignment="Center">
+                                        <Path Fill="#F59E0B" Data="M 1 3 L 6 3 L 8 5 L 15 5 L 15 13 L 1 13 Z" VerticalAlignment="Center">
+                                            <Path.Style>
+                                                <Style TargetType="Path">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Children.Count}" Value="0">
+                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Path.Style>
+                                        </Path>
+                                        <Ellipse Width="8" Height="8" Fill="{DynamicResource AccentBrush}"
+                                                 HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <Ellipse.Style>
+                                                <Style TargetType="Ellipse">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Children.Count}" Value="0">
+                                                            <Setter Property="Visibility" Value="Visible" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Ellipse.Style>
+                                        </Ellipse>
+                                    </Grid>
                                     <TextBlock Text="{Binding Header}" VerticalAlignment="Center" />
                                 </StackPanel>
                             </HierarchicalDataTemplate>
