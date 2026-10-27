@@ -9,7 +9,7 @@ namespace SnmpBrowser.Services;
 /// </summary>
 public static class MibRepoService
 {
-    public const string DefaultUrl = "https://github.com/CHANGE-ME/snmpbrowser-mibs.git";
+    public const string DefaultUrl = "https://github.com/programmi-costantino/snmpbrowser-mibs.git";
 
     private static readonly Regex TagRx = new(@"^[A-Za-z0-9][A-Za-z0-9._/+-]*$", RegexOptions.Compiled);
 
