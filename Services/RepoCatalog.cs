@@ -7,23 +7,30 @@ namespace SnmpBrowser.Services;
 /// Repository MIB centrale: un repo git pubblico che contiene un submodule per ogni libreria MIB;
 /// le versioni di ogni libreria sono i tag git del submodule.
 /// </summary>
-public static class MibRepoService
+public sealed class RepoCatalog
 {
-    public const string DefaultUrl = "https://github.com/programmi-costantino/snmpbrowser-mibs.git";
+    public static RepoCatalog Mib { get; } = new(CatalogProfile.Mib);
+    public static RepoCatalog Plugins { get; } = new(CatalogProfile.Plugins);
+
+    private readonly CatalogProfile _profile;
+
+    private RepoCatalog(CatalogProfile profile) => _profile = profile;
+
+    public CatalogProfile Profile => _profile;
 
     private static readonly Regex TagRx = new(@"^[A-Za-z0-9][A-Za-z0-9._/+-]*$", RegexOptions.Compiled);
 
     private static string AppDir => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SnmpBrowser");
 
-    public static string RepoDir => Path.Combine(AppDir, "mib-repo");
-    private static string UrlFile => Path.Combine(AppDir, "mib-repo-url.txt");
+    public string RepoDir => Path.Combine(AppDir, _profile.RepoDirName);
+    private string UrlFile => Path.Combine(AppDir, _profile.UrlFileName);
 
-    public static bool IsCloned => Directory.Exists(Path.Combine(RepoDir, ".git"));
+    public bool IsCloned => Directory.Exists(Path.Combine(RepoDir, ".git"));
 
     // ---- URL --------------------------------------------------------------
 
-    public static string LoadUrl()
+    public string LoadUrl()
     {
         try
         {
@@ -36,10 +43,10 @@ public static class MibRepoService
         catch
         {
         }
-        return DefaultUrl;
+        return _profile.DefaultUrl;
     }
 
-    public static void SaveUrl(string url)
+    public void SaveUrl(string url)
     {
         try
         {
@@ -67,7 +74,7 @@ public static class MibRepoService
 
     private sealed record Entry(string Name, string Path, string Url);
 
-    private static List<Entry> ReadGitmodules()
+    private List<Entry> ReadGitmodules()
     {
         var file = Path.Combine(RepoDir, ".gitmodules");
         var result = new List<Entry>();
@@ -112,9 +119,9 @@ public static class MibRepoService
         return !path.Split('/', '\\').Any(p => p is ".." or "." or "" || p.Equals(".git", StringComparison.OrdinalIgnoreCase));
     }
 
-    private static string ModuleDir(string path) => Path.GetFullPath(Path.Combine(RepoDir, path));
+    private string ModuleDir(string path) => Path.GetFullPath(Path.Combine(RepoDir, path));
 
-    private static bool IsInstalledDir(string path)
+    private bool IsInstalledDir(string path)
     {
         var dir = ModuleDir(path);
         return File.Exists(Path.Combine(dir, ".git")) || Directory.Exists(Path.Combine(dir, ".git"));
@@ -122,12 +129,12 @@ public static class MibRepoService
 
     // ---- Avvio: carica le MIB gia' scaricate -------------------------------
 
-    public static void LoadInstalled()
+    public void LoadInstalled()
     {
         try
         {
             foreach (var entry in ReadGitmodules().Where(e => IsInstalledDir(e.Path)))
-                MibStore.Instance.ReplaceSource(entry.Name, MibStore.EnumerateMibFiles(ModuleDir(entry.Path)));
+                _profile.Activate(entry.Name, ModuleDir(entry.Path));
         }
         catch
         {
@@ -138,10 +145,10 @@ public static class MibRepoService
     // ---- Elenco e sincronizzazione ----------------------------------------
 
     /// <summary>Elenco dal clone locale, senza rete.</summary>
-    public static Task<List<MibPackageItem>> LoadLocalAsync() => BuildItemsAsync(allowRemote: false);
+    public Task<List<MibPackageItem>> LoadLocalAsync() => BuildItemsAsync(allowRemote: false);
 
     /// <summary>Scarica (o aggiorna) il repository centrale e rilegge elenco e versioni.</summary>
-    public static async Task<(List<MibPackageItem> Items, string? Error)> SyncAsync(string url)
+    public async Task<(List<MibPackageItem> Items, string? Error)> SyncAsync(string url)
     {
         url = url.Trim();
         var invalid = ValidateUrl(url);
@@ -185,7 +192,7 @@ public static class MibRepoService
         return (items, items.Count == 0 ? "Il repository non contiene nessun modulo MIB (.gitmodules vuoto o mancante)." : null);
     }
 
-    private static async Task<List<MibPackageItem>> BuildItemsAsync(bool allowRemote)
+    private async Task<List<MibPackageItem>> BuildItemsAsync(bool allowRemote)
     {
         var entries = ReadGitmodules();
         var items = new List<MibPackageItem>();
@@ -196,7 +203,7 @@ public static class MibRepoService
             await gate.WaitAsync();
             try
             {
-                var item = new MibPackageItem(entry.Name, entry.Path, entry.Url);
+                var item = new MibPackageItem(entry.Name, entry.Path, entry.Url) { ActivationKey = entry.Name };
                 var dir = ModuleDir(entry.Path);
                 List<string> tags;
 
@@ -255,7 +262,7 @@ public static class MibRepoService
     // ---- Installa / cambia versione / rimuovi ------------------------------
 
     /// <summary>Equivale a: git submodule update --init &lt;path&gt;  +  git checkout &lt;tag&gt;. Restituisce l'errore, o null se ok.</summary>
-    public static async Task<string?> InstallAsync(MibPackageItem item, string? tag)
+    public async Task<string?> InstallAsync(MibPackageItem item, string? tag)
     {
         if (tag is not null && (!TagRx.IsMatch(tag) || !item.Versions.Contains(tag)))
             return "Versione non valida.";
@@ -282,7 +289,7 @@ public static class MibRepoService
 
             item.InstalledVersion = await CurrentVersionAsync(dir);
             item.SelectedVersion = item.InstalledVersion;
-            MibStore.Instance.ReplaceSource(item.Name, MibStore.EnumerateMibFiles(dir));
+            _profile.Activate(item.Name, dir);
             return null;
         }
         catch (Exception ex)
@@ -291,14 +298,14 @@ public static class MibRepoService
         }
     }
 
-    public static async Task<string?> RemoveAsync(MibPackageItem item)
+    public async Task<string?> RemoveAsync(MibPackageItem item)
     {
         if (!IsSafePath(item.Path)) return "Percorso del modulo non valido.";
 
         var result = await GitService.RunAsync(new[] { "submodule", "deinit", "-f", "--", item.Path }, RepoDir);
         if (!result.Ok) return $"Rimozione fallita: {result.ErrorSummary()}";
 
-        MibStore.Instance.RemoveSource(item.Name);
+        _profile.Deactivate(item.Name);
         item.InstalledVersion = null;
         return null;
     }

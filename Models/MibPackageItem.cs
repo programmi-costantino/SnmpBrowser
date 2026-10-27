@@ -25,6 +25,24 @@ public sealed class MibPackageItem : INotifyPropertyChanged
     public string Path { get; }
     public string Url { get; }
 
+    /// <summary>Chiave con cui il pacchetto e' registrato (serve a ritrovare il plugin installato).</summary>
+    public string? ActivationKey { get; init; }
+
+    private string? _pluginState;
+    private string _pluginActionText = "";
+    private bool _pluginActionVisible;
+
+    public string PluginActionText => _pluginActionText;
+    public bool PluginActionVisible => _pluginActionVisible;
+
+    public void SetPluginInfo(string? stateText, string actionText, bool actionVisible)
+    {
+        _pluginState = stateText;
+        _pluginActionText = actionText;
+        _pluginActionVisible = actionVisible;
+        Notify();
+    }
+
     /// <summary>Id della sorgente personale; null per i pacchetti del repository centrale.</summary>
     public string? SourceId { get; init; }
 
@@ -89,8 +107,10 @@ public sealed class MibPackageItem : INotifyPropertyChanged
             if (_isBusy) return _busyText;
             if (!string.IsNullOrEmpty(_error)) return _error;
             if (!IsInstalled) return Versions.Count == 0 ? "Non installata (nessuna versione)" : "Non installata";
-            if (IsBranchRef(_installedVersion)) return "Segue un branch: premi Aggiorna per l'ultima versione";
-            return Latest is not null && Latest != _installedVersion ? "Aggiornamento disponibile" : "Aggiornata";
+            string status;
+            if (IsBranchRef(_installedVersion)) status = "Segue un branch: premi Aggiorna per l'ultima versione";
+            else status = Latest is not null && Latest != _installedVersion ? "Aggiornamento disponibile" : "Aggiornata";
+            return _pluginState is null ? status : $"{status} - plugin: {_pluginState}";
         }
     }
 

@@ -134,6 +134,6 @@ public static class SnmpService
         var oid = v.Id.ToString().TrimStart('.');
         var type = v.Data.TypeCode.ToString();
         var raw = v.Data.ToString() ?? "";
-        return new SnmpEntry(oid, MibNames.Resolve(oid), type, MibStore.Instance.DecorateValue(oid, type, raw), raw);
+        return new SnmpEntry(oid, MibNames.Resolve(oid), type, ValuePipeline.Format(oid, type, raw), raw);
     }
 }

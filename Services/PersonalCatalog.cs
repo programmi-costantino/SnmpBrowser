@@ -20,28 +20,35 @@ public sealed class PersonalSource
 /// Sorgenti personali: repository git (anche privati) dell'utente, ognuno clonato per conto suo.
 /// Restano sul PC dell'utente e non sono parte del repository centrale.
 /// </summary>
-public static class PersonalSourceService
+public sealed class PersonalCatalog
 {
+    public static PersonalCatalog Mib { get; } = new(CatalogProfile.Mib);
+    public static PersonalCatalog Plugins { get; } = new(CatalogProfile.Plugins);
+
+    private readonly CatalogProfile _profile;
+
+    private PersonalCatalog(CatalogProfile profile) => _profile = profile;
+
     private const string BranchSuffix = MibPackageItem.BranchSuffix;
 
-    private static readonly Regex RefRx = new(@"^[A-Za-z0-9][A-Za-z0-9._/+-]*$", RegexOptions.Compiled);
-    private static readonly Regex IdRx = new(@"^[0-9a-f]{32}$", RegexOptions.Compiled);
-    private static readonly object Gate = new();
-    private static List<PersonalSource>? _sources;
+    private readonly Regex RefRx = new(@"^[A-Za-z0-9][A-Za-z0-9._/+-]*$", RegexOptions.Compiled);
+    private readonly Regex IdRx = new(@"^[0-9a-f]{32}$", RegexOptions.Compiled);
+    private readonly object Gate = new();
+    private List<PersonalSource>? _sources;
 
-    private static string AppDir => Path.Combine(
+    private string AppDir => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SnmpBrowser");
 
-    private static string PersonalRoot => Path.Combine(AppDir, "personal");
-    private static string FilePath => Path.Combine(AppDir, "personal-sources.json");
+    private string PersonalRoot => Path.Combine(AppDir, _profile.PersonalDirName);
+    private string FilePath => Path.Combine(AppDir, _profile.PersonalFileName);
 
-    public static string CloneDir(PersonalSource s) => Path.Combine(PersonalRoot, s.Id);
-    public static string SourceKey(PersonalSource s) => "personal:" + s.Id;
-    private static bool IsCloned(string dir) => Directory.Exists(Path.Combine(dir, ".git"));
+    public string CloneDir(PersonalSource s) => Path.Combine(PersonalRoot, s.Id);
+    public string SourceKey(PersonalSource s) => _profile.PersonalKeyPrefix + s.Id;
+    private bool IsCloned(string dir) => Directory.Exists(Path.Combine(dir, ".git"));
 
     // ---- Archivio delle sorgenti -------------------------------------------
 
-    public static IReadOnlyList<PersonalSource> All
+    public IReadOnlyList<PersonalSource> All
     {
         get
         {
@@ -53,7 +60,7 @@ public static class PersonalSourceService
         }
     }
 
-    public static PersonalSource? Find(string? id)
+    public PersonalSource? Find(string? id)
     {
         lock (Gate)
         {
@@ -62,7 +69,7 @@ public static class PersonalSourceService
         }
     }
 
-    private static void EnsureLoaded()
+    private void EnsureLoaded()
     {
         if (_sources is not null) return;
 
@@ -81,7 +88,7 @@ public static class PersonalSourceService
         _sources = new List<PersonalSource>();
     }
 
-    private static string? Save()
+    private string? Save()
     {
         try
         {
@@ -97,7 +104,7 @@ public static class PersonalSourceService
 
     // ---- Token (DPAPI) ------------------------------------------------------
 
-    private static string? GetToken(PersonalSource s)
+    private string? GetToken(PersonalSource s)
     {
         if (string.IsNullOrEmpty(s.ProtectedToken)) return null;
         try
@@ -112,16 +119,16 @@ public static class PersonalSourceService
     }
 
     /// <summary>Token salvato, in chiaro solo in memoria (serve per "Verifica connessione").</summary>
-    public static string? SavedToken(PersonalSource s) => GetToken(s);
+    public string? SavedToken(PersonalSource s) => GetToken(s);
 
-    public static bool HasToken(PersonalSource s) => !string.IsNullOrEmpty(s.ProtectedToken);
+    public bool HasToken(PersonalSource s) => !string.IsNullOrEmpty(s.ProtectedToken);
 
-    private static string ProtectToken(string token) =>
+    private string ProtectToken(string token) =>
         Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(token.Trim()), null, DataProtectionScope.CurrentUser));
 
     // ---- Validazione e modifica --------------------------------------------
 
-    public static string? ValidateUrl(string url)
+    public string? ValidateUrl(string url)
     {
         url = url.Trim();
         if (url.Length == 0) return "Inserisci l'URL del repository.";
@@ -133,7 +140,7 @@ public static class PersonalSourceService
         return null;
     }
 
-    private static string? ValidateFields(string name, string url, PersonalSource? editing)
+    private string? ValidateFields(string name, string url, PersonalSource? editing)
     {
         name = name.Trim();
         if (name.Length is 0 or > 40) return "Il nome deve avere da 1 a 40 caratteri.";
@@ -144,7 +151,7 @@ public static class PersonalSourceService
         return ValidateUrl(url);
     }
 
-    public static string? Add(string name, string url, string? token)
+    public string? Add(string name, string url, string? token)
     {
         var error = ValidateFields(name, url, null);
         if (error is not null) return error;
@@ -162,7 +169,7 @@ public static class PersonalSourceService
         }
     }
 
-    public static string? Update(PersonalSource source, string name, string url, string? newToken, bool clearToken)
+    public string? Update(PersonalSource source, string name, string url, string? newToken, bool clearToken)
     {
         var error = ValidateFields(name, url, source);
         if (error is not null) return error;
@@ -177,7 +184,7 @@ public static class PersonalSourceService
             if (!string.Equals(target.Url, url.Trim(), StringComparison.Ordinal))
             {
                 SafeDelete(CloneDir(target));
-                MibStore.Instance.RemoveSource(SourceKey(target));
+                _profile.Deactivate(SourceKey(target));
             }
 
             target.Name = name.Trim();
@@ -188,19 +195,19 @@ public static class PersonalSourceService
         }
     }
 
-    public static string? Delete(PersonalSource source)
+    public string? Delete(PersonalSource source)
     {
         lock (Gate)
         {
             EnsureLoaded();
             SafeDelete(CloneDir(source));
-            MibStore.Instance.RemoveSource(SourceKey(source));
+            _profile.Deactivate(SourceKey(source));
             _sources!.RemoveAll(s => s.Id == source.Id);
             return Save();
         }
     }
 
-    private static void SafeDelete(string dir)
+    private void SafeDelete(string dir)
     {
         try
         {
@@ -225,7 +232,7 @@ public static class PersonalSourceService
     /// Il token passa a git solo come variabile d'ambiente del processo (non nella riga di comando, non nell'URL,
     /// non nei file di configurazione) ed e' limitato all'host del repository.
     /// </summary>
-    private static async Task<GitResult> RunGitAsync(IEnumerable<string> args, string? dir, string url, string? token, int timeoutSeconds = 120)
+    private async Task<GitResult> RunGitAsync(IEnumerable<string> args, string? dir, string url, string? token, int timeoutSeconds = 120)
     {
         var env = new Dictionary<string, string>
         {
@@ -249,14 +256,14 @@ public static class PersonalSourceService
         return result with { Output = Scrub(result.Output, token), Error = Scrub(result.Error, token) };
     }
 
-    private static string Scrub(string text, string? token)
+    private string Scrub(string text, string? token)
     {
         if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(text)) return text;
         var basic = Convert.ToBase64String(Encoding.UTF8.GetBytes("x-access-token:" + token));
         return text.Replace(token, "***").Replace(basic, "***");
     }
 
-    private static string Explain(GitResult r)
+    private string Explain(GitResult r)
     {
         var detail = r.ErrorSummary();
         var lower = detail.ToLowerInvariant();
@@ -273,7 +280,7 @@ public static class PersonalSourceService
     }
 
     /// <summary>Prova la connessione (git ls-remote) con l'URL e il token indicati.</summary>
-    public static async Task<(bool Ok, string Message)> TestConnectionAsync(string url, string? token)
+    public async Task<(bool Ok, string Message)> TestConnectionAsync(string url, string? token)
     {
         var invalid = ValidateUrl(url);
         if (invalid is not null) return (false, invalid);
@@ -288,28 +295,28 @@ public static class PersonalSourceService
     // ---- Elenco, installazione, rimozione ----------------------------------
 
     /// <summary>All'avvio carica le MIB delle sorgenti gia' scaricate (senza rete).</summary>
-    public static void LoadInstalled()
+    public void LoadInstalled()
     {
         try
         {
             foreach (var source in All.Where(s => IsCloned(CloneDir(s))))
-                MibStore.Instance.ReplaceSource(SourceKey(source), MibStore.EnumerateMibFiles(CloneDir(source)));
+                _profile.Activate(SourceKey(source), CloneDir(source));
         }
         catch
         {
         }
     }
 
-    public static async Task<List<MibPackageItem>> LoadItemsAsync(bool allowRemote)
+    public async Task<List<MibPackageItem>> LoadItemsAsync(bool allowRemote)
     {
         var sources = All;
         var items = await Task.WhenAll(sources.Select(s => BuildItemAsync(s, allowRemote)));
         return items.OrderBy(i => i.Name, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    private static async Task<MibPackageItem> BuildItemAsync(PersonalSource source, bool allowRemote)
+    private async Task<MibPackageItem> BuildItemAsync(PersonalSource source, bool allowRemote)
     {
-        var item = new MibPackageItem(source.Name, source.Id, source.Url) { SourceId = source.Id };
+        var item = new MibPackageItem(source.Name, source.Id, source.Url) { SourceId = source.Id, ActivationKey = SourceKey(source) };
         var dir = CloneDir(source);
         var token = GetToken(source);
         List<string> versions = new();
@@ -339,10 +346,10 @@ public static class PersonalSourceService
         return item;
     }
 
-    private static List<string> FormatRefs(IEnumerable<string> tags, IEnumerable<string> branches)
+    private List<string> FormatRefs(IEnumerable<string> tags, IEnumerable<string> branches)
     {
         var sortedTags = tags.Where(t => RefRx.IsMatch(t)).Distinct().ToList();
-        sortedTags.Sort((a, b) => MibRepoService.CompareVersions(b, a)); // dalla piu' recente
+        sortedTags.Sort((a, b) => RepoCatalog.CompareVersions(b, a)); // dalla piu' recente
 
         var sortedBranches = branches.Where(b => RefRx.IsMatch(b)).Distinct()
             .OrderBy(b => b, StringComparer.OrdinalIgnoreCase)
@@ -351,7 +358,7 @@ public static class PersonalSourceService
         return sortedTags.Concat(sortedBranches).ToList();
     }
 
-    private static List<string> ParseRemoteRefs(string output)
+    private List<string> ParseRemoteRefs(string output)
     {
         var tags = new List<string>();
         var branches = new List<string>();
@@ -365,7 +372,7 @@ public static class PersonalSourceService
         return FormatRefs(tags, branches);
     }
 
-    private static async Task<List<string>> LocalRefsAsync(string dir)
+    private async Task<List<string>> LocalRefsAsync(string dir)
     {
         var tagResult = await GitService.RunAsync(new[] { "tag", "-l" }, dir);
         var tags = tagResult.Ok ? tagResult.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) : Array.Empty<string>();
@@ -380,9 +387,9 @@ public static class PersonalSourceService
         return FormatRefs(tags, branches);
     }
 
-    private static string RefMarker(string dir) => Path.Combine(dir, ".git", "snmpbrowser-ref");
+    private string RefMarker(string dir) => Path.Combine(dir, ".git", "snmpbrowser-ref");
 
-    private static async Task<string> CurrentRefAsync(string dir)
+    private async Task<string> CurrentRefAsync(string dir)
     {
         try
         {
@@ -396,11 +403,11 @@ public static class PersonalSourceService
         catch
         {
         }
-        return await MibRepoService.CurrentVersionAsync(dir);
+        return await RepoCatalog.CurrentVersionAsync(dir);
     }
 
     /// <summary>Scarica (clone o fetch) e passa alla versione/branch scelto. Restituisce l'errore, o null se ok.</summary>
-    public static async Task<string?> InstallAsync(MibPackageItem item, string? selected)
+    public async Task<string?> InstallAsync(MibPackageItem item, string? selected)
     {
         var source = Find(item.SourceId);
         if (source is null) return "Sorgente non trovata.";
@@ -451,7 +458,7 @@ public static class PersonalSourceService
             item.SelectedVersion = item.InstalledVersion;
             item.Error = null;
 
-            MibStore.Instance.ReplaceSource(SourceKey(source), MibStore.EnumerateMibFiles(dir));
+            _profile.Activate(SourceKey(source), dir);
             return null;
         }
         catch (Exception ex)
@@ -461,13 +468,13 @@ public static class PersonalSourceService
     }
 
     /// <summary>Scarica dal programma le MIB della sorgente e cancella il clone locale (la sorgente resta nell'elenco).</summary>
-    public static Task<string?> RemoveAsync(MibPackageItem item)
+    public Task<string?> RemoveAsync(MibPackageItem item)
     {
         var source = Find(item.SourceId);
         if (source is null) return Task.FromResult<string?>("Sorgente non trovata.");
 
         SafeDelete(CloneDir(source));
-        MibStore.Instance.RemoveSource(SourceKey(source));
+        _profile.Deactivate(SourceKey(source));
         item.InstalledVersion = null;
         return Task.FromResult<string?>(null);
     }

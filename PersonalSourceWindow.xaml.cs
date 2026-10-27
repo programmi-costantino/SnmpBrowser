@@ -5,11 +5,13 @@ namespace SnmpBrowser;
 
 public partial class PersonalSourceWindow : Window
 {
+    private readonly PersonalCatalog _catalog;
     private readonly PersonalSource? _editing;
 
-    public PersonalSourceWindow(PersonalSource? editing = null)
+    public PersonalSourceWindow(PersonalCatalog catalog, PersonalSource? editing = null)
     {
         InitializeComponent();
+        _catalog = catalog;
         _editing = editing;
 
         if (editing is null)
@@ -24,7 +26,7 @@ public partial class PersonalSourceWindow : Window
         UrlBox.Text = editing.Url;
         DeleteButton.Visibility = Visibility.Visible;
 
-        if (PersonalSourceService.HasToken(editing))
+        if (_catalog.HasToken(editing))
         {
             TokenHint.Text = "Token salvato. Lascia vuoto per mantenerlo, oppure scrivine uno nuovo per sostituirlo.";
             ClearTokenBox.Visibility = Visibility.Visible;
@@ -45,14 +47,14 @@ public partial class PersonalSourceWindow : Window
     {
         // se il campo token e' vuoto provo con quello salvato
         var typed = TokenBox.Password;
-        var token = typed.Length > 0 ? typed : (_editing is null ? null : PersonalSourceService.SavedToken(_editing));
+        var token = typed.Length > 0 ? typed : (_editing is null ? null : _catalog.SavedToken(_editing));
 
         TestButton.IsEnabled = false;
         ShowMessage("Verifica in corso...", error: false);
 
         try
         {
-            var (ok, message) = await PersonalSourceService.TestConnectionAsync(UrlBox.Text, token);
+            var (ok, message) = await _catalog.TestConnectionAsync(UrlBox.Text, token);
             ShowMessage(message, error: !ok);
         }
         finally
@@ -64,8 +66,8 @@ public partial class PersonalSourceWindow : Window
     private void SaveButton_Click(object sender, RoutedEventArgs e)
     {
         var error = _editing is null
-            ? PersonalSourceService.Add(NameBox.Text, UrlBox.Text, TokenBox.Password)
-            : PersonalSourceService.Update(_editing, NameBox.Text, UrlBox.Text, TokenBox.Password,
+            ? _catalog.Add(NameBox.Text, UrlBox.Text, TokenBox.Password)
+            : _catalog.Update(_editing, NameBox.Text, UrlBox.Text, TokenBox.Password,
                 ClearTokenBox.IsChecked == true);
 
         if (error is not null)
@@ -86,7 +88,7 @@ public partial class PersonalSourceWindow : Window
             "Elimina sorgente", MessageBoxButton.YesNo, MessageBoxImage.Warning);
         if (confirm != MessageBoxResult.Yes) return;
 
-        var error = PersonalSourceService.Delete(_editing);
+        var error = _catalog.Delete(_editing);
         if (error is not null)
         {
             ShowMessage(error, error: true);
