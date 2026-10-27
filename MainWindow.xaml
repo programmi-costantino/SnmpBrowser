@@ -1,0 +1,279 @@
+<Window x:Class="SnmpBrowser.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="SNMP Browser" Height="780" Width="1200" MinWidth="900" MinHeight="560"
+        Background="{DynamicResource BgBrush}" Foreground="{DynamicResource TextBrush}" FontFamily="Segoe UI">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Intestazione -->
+        <Border Grid.Row="0" Padding="20,14">
+            <Border.Background>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                    <GradientStop Color="#0F172A" Offset="0" />
+                    <GradientStop Color="#1E40AF" Offset="1" />
+                </LinearGradientBrush>
+            </Border.Background>
+            <Grid>
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="&#xE774;" FontFamily="Segoe MDL2 Assets" FontSize="28"
+                           Foreground="#93C5FD" VerticalAlignment="Center" Margin="0,0,14,0" />
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="SNMP Browser" FontSize="20" FontWeight="SemiBold" Foreground="White" />
+                    <TextBlock Text="Esplora, leggi e modifica i valori MIB dei tuoi dispositivi"
+                               FontSize="12" Foreground="#BFD0F7" />
+                </StackPanel>
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <TextBlock Text="&#xE706;" FontFamily="Segoe MDL2 Assets" FontSize="15" Foreground="#BFD0F7"
+                           VerticalAlignment="Center" Margin="0,0,8,0" />
+                <ToggleButton x:Name="ThemeToggle" Style="{StaticResource ThemeSwitch}" Click="ThemeToggle_Click"
+                              ToolTip="Tema chiaro / scuro" />
+                <TextBlock Text="&#xE708;" FontFamily="Segoe MDL2 Assets" FontSize="15" Foreground="#BFD0F7"
+                           VerticalAlignment="Center" Margin="8,0,0,0" />
+            </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Dispositivo -->
+        <Border Grid.Row="1" Style="{StaticResource Card}" Margin="16,16,16,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="2*" />
+                    <ColumnDefinition Width="90" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="100" />
+                    <ColumnDefinition Width="120" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                    <TextBlock Text="HOST / INDIRIZZO IP" Style="{StaticResource FieldLabel}" />
+                    <TextBox x:Name="HostBox" Text="127.0.0.1" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Margin="0,0,12,0">
+                    <TextBlock Text="PORTA" Style="{StaticResource FieldLabel}" />
+                    <TextBox x:Name="PortBox" Text="161" />
+                </StackPanel>
+                <StackPanel Grid.Column="2" Margin="0,0,12,0">
+                    <TextBlock Text="COMMUNITY" Style="{StaticResource FieldLabel}" />
+                    <TextBox x:Name="CommunityBox" Text="public" />
+                </StackPanel>
+                <StackPanel Grid.Column="3" Margin="0,0,12,0">
+                    <TextBlock Text="VERSIONE" Style="{StaticResource FieldLabel}" />
+                    <ComboBox x:Name="VersionBox" SelectedIndex="1">
+                        <ComboBoxItem Content="v1" />
+                        <ComboBoxItem Content="v2c" />
+                    </ComboBox>
+                </StackPanel>
+                <StackPanel Grid.Column="4">
+                    <TextBlock Text="TIMEOUT (MS)" Style="{StaticResource FieldLabel}" />
+                    <TextBox x:Name="TimeoutBox" Text="3000" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Interrogazione -->
+        <Border Grid.Row="2" Style="{StaticResource Card}" Margin="16,12,16,0">
+            <StackPanel>
+                <TextBlock Text="OID DA INTERROGARE" Style="{StaticResource FieldLabel}" />
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="OidBox" Grid.Column="0" Text="1.3.6.1.2.1.1" FontFamily="Consolas"
+                             KeyDown="OidBox_KeyDown" />
+                    <Button x:Name="GetButton" Grid.Column="1" Content="Get" Margin="10,0,0,0" MinWidth="80"
+                            Style="{StaticResource SecondaryButton}" Click="GetButton_Click"
+                            ToolTip="Legge il valore di un singolo OID (es. ...1.1.0)" />
+                    <Button x:Name="WalkButton" Grid.Column="2" Content="Walk" Margin="8,0,0,0" MinWidth="80"
+                            Click="WalkButton_Click" ToolTip="Esplora tutto il sottoalbero (Invio)" />
+                </Grid>
+
+                <WrapPanel Margin="0,10,0,0">
+                    <TextBlock Text="Scorciatoie:" Foreground="{DynamicResource MutedBrush}" FontSize="12"
+                               VerticalAlignment="Top" Margin="0,5,10,0" />
+                    <Button Content="system" Tag="1.3.6.1.2.1.1" Style="{StaticResource ChipButton}" Click="PresetButton_Click" />
+                    <Button Content="interfaces" Tag="1.3.6.1.2.1.2" Style="{StaticResource ChipButton}" Click="PresetButton_Click" />
+                    <Button Content="ifXTable" Tag="1.3.6.1.2.1.31.1.1" Style="{StaticResource ChipButton}" Click="PresetButton_Click" />
+                    <Button Content="ip" Tag="1.3.6.1.2.1.4" Style="{StaticResource ChipButton}" Click="PresetButton_Click" />
+                    <Button Content="tcp" Tag="1.3.6.1.2.1.6" Style="{StaticResource ChipButton}" Click="PresetButton_Click" />
+                    <Button Content="udp" Tag="1.3.6.1.2.1.7" Style="{StaticResource ChipButton}" Click="PresetButton_Click" />
+                    <Button Content="snmp" Tag="1.3.6.1.2.1.11" Style="{StaticResource ChipButton}" Click="PresetButton_Click" />
+                    <Button Content="host" Tag="1.3.6.1.2.1.25" Style="{StaticResource ChipButton}" Click="PresetButton_Click" />
+                    <Button Content="enterprises" Tag="1.3.6.1.4.1" Style="{StaticResource ChipButton}" Click="PresetButton_Click" />
+                </WrapPanel>
+
+                <Expander Header="Scrittura valore (Set)" Foreground="{DynamicResource MutedBrush}" FontSize="12">
+                    <Grid Margin="0,10,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="170" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Margin="0,0,10,0">
+                            <TextBlock Text="TIPO" Style="{StaticResource FieldLabel}" />
+                            <ComboBox x:Name="SetTypeBox" SelectedIndex="0">
+                                <ComboBoxItem Content="Integer32" />
+                                <ComboBoxItem Content="OctetString" />
+                                <ComboBoxItem Content="Gauge32" />
+                                <ComboBoxItem Content="TimeTicks" />
+                                <ComboBoxItem Content="IpAddress" />
+                                <ComboBoxItem Content="ObjectIdentifier" />
+                            </ComboBox>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Margin="0,0,10,0">
+                            <TextBlock Text="NUOVO VALORE" Style="{StaticResource FieldLabel}" />
+                            <TextBox x:Name="SetValueBox" />
+                        </StackPanel>
+                        <Button x:Name="SetButton" Grid.Column="2" Content="Scrivi (Set)" VerticalAlignment="Bottom"
+                                Style="{StaticResource DangerButton}" Click="SetButton_Click" />
+                    </Grid>
+                </Expander>
+            </StackPanel>
+        </Border>
+
+        <!-- Albero + risultati -->
+        <Grid Grid.Row="3" Margin="16,12,16,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="3*" MinWidth="220" />
+                <ColumnDefinition Width="12" />
+                <ColumnDefinition Width="5*" MinWidth="320" />
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Style="{StaticResource Card}" Padding="0">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top" Text="STRUTTURA OID" Style="{StaticResource FieldLabel}"
+                               Margin="14,12,14,8" />
+                    <TreeView x:Name="OidTree" Margin="6,0,6,6" SelectedItemChanged="OidTree_SelectedItemChanged">
+                        <TreeView.ItemContainerStyle>
+                            <Style TargetType="TreeViewItem">
+                                <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                                <Setter Property="Padding" Value="2,3" />
+                            </Style>
+                        </TreeView.ItemContainerStyle>
+                        <TreeView.ItemTemplate>
+                            <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock FontFamily="Segoe MDL2 Assets" VerticalAlignment="Center"
+                                               Margin="0,0,8,0" Text="&#xE8B7;" Foreground="#F59E0B">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Children.Count}" Value="0">
+                                                        <Setter Property="Text" Value="&#xE8A5;" />
+                                                        <Setter Property="Foreground" Value="#2563EB" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                    <TextBlock Text="{Binding Header}" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </HierarchicalDataTemplate>
+                        </TreeView.ItemTemplate>
+                    </TreeView>
+                </DockPanel>
+            </Border>
+
+            <GridSplitter Grid.Column="1" Width="12" HorizontalAlignment="Stretch" Background="Transparent" />
+
+            <Border Grid.Column="2" Style="{StaticResource Card}" Padding="0">
+                <DockPanel>
+                    <Grid DockPanel.Dock="Top" Margin="14,10,14,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="230" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="RISULTATI" Style="{StaticResource FieldLabel}"
+                                   VerticalAlignment="Center" Margin="0" />
+                        <TextBlock Grid.Column="1" x:Name="CountText" Foreground="{DynamicResource MutedBrush}"
+                                   FontSize="12" VerticalAlignment="Center" Margin="10,0,0,0" />
+                        <Grid Grid.Column="2">
+                            <TextBox x:Name="FilterBox" Padding="8,4" TextChanged="FilterBox_TextChanged" />
+                            <TextBlock Text="Filtra risultati..." Foreground="{DynamicResource PlaceholderBrush}" FontSize="13"
+                                       Margin="10,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Text, ElementName=FilterBox}" Value="">
+                                                <Setter Property="Visibility" Value="Visible" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Grid>
+                    </Grid>
+
+                    <Grid>
+                        <DataGrid x:Name="ResultsGrid" AutoGenerateColumns="False" IsReadOnly="True"
+                                  SelectionMode="Single" HeadersVisibility="Column"
+                                  SelectionChanged="ResultsGrid_SelectionChanged">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Nome" Binding="{Binding Name}" Width="170" />
+                                <DataGridTextColumn Header="OID" Binding="{Binding Oid}" Width="170" />
+                                <DataGridTextColumn Header="Tipo" Binding="{Binding Type}" Width="100" />
+                                <DataGridTextColumn Header="Valore" Binding="{Binding Value}" Width="*" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <TextBlock x:Name="EmptyText" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   TextAlignment="Center" Foreground="{DynamicResource PlaceholderBrush}" FontSize="14" IsHitTestVisible="False"
+                                   Text="Nessun risultato ancora&#x0A;Inserisci un OID e premi Walk (o scegli una scorciatoia)" />
+                    </Grid>
+                </DockPanel>
+            </Border>
+        </Grid>
+
+        <!-- Dettaglio selezione -->
+        <Border Grid.Row="4" Style="{StaticResource Card}" Margin="16,12,16,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="160" />
+                    <ColumnDefinition Width="220" />
+                    <ColumnDefinition Width="110" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Margin="0,0,12,0">
+                    <TextBlock Text="NOME" Style="{StaticResource FieldLabel}" />
+                    <TextBlock x:Name="DetName" Text="-" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Margin="0,0,12,0">
+                    <TextBlock Text="OID" Style="{StaticResource FieldLabel}" />
+                    <TextBlock x:Name="DetOid" Text="-" FontFamily="Consolas" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+                <StackPanel Grid.Column="2" Margin="0,0,12,0">
+                    <TextBlock Text="TIPO" Style="{StaticResource FieldLabel}" />
+                    <TextBlock x:Name="DetType" Text="-" />
+                </StackPanel>
+                <StackPanel Grid.Column="3" Margin="0,0,12,0">
+                    <TextBlock Text="VALORE" Style="{StaticResource FieldLabel}" />
+                    <TextBox x:Name="DetValue" IsReadOnly="True" Padding="6,3" />
+                </StackPanel>
+                <Button x:Name="CopyButton" Grid.Column="4" Content="Copia valore" VerticalAlignment="Bottom"
+                        Style="{StaticResource SecondaryButton}" Click="CopyButton_Click" />
+            </Grid>
+        </Border>
+
+        <!-- Stato -->
+        <Border Grid.Row="5" Margin="0,12,0,0" Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource LineBrush}"
+                BorderThickness="0,1,0,0" Padding="16,8">
+            <StackPanel Orientation="Horizontal">
+                <Ellipse x:Name="StatusDot" Width="10" Height="10" Fill="#94A3B8" Margin="0,1,8,0" />
+                <TextBlock x:Name="StatusText" Text="Pronto" FontSize="12" Foreground="{DynamicResource MutedBrush}" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>
