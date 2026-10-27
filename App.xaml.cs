@@ -53,6 +53,7 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         ApplyTheme(LoadPreference() ?? SystemPrefersDark());
+        Services.MibStore.Instance.LoadStartup();
         base.OnStartup(e);
     }
 

@@ -23,6 +23,7 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<OidNode> _roots = new();
     private readonly ICollectionView _view;
     private bool _updatingSelection;
+    private readonly bool _ready;
 
     public MainWindow()
     {
@@ -35,8 +36,55 @@ public partial class MainWindow : Window
         _view.Filter = FilterEntry;
 
         ThemeToggle.IsChecked = App.IsDark;
+        ShowDetail(null);
+        UpdateMibButton();
         UpdateCount();
+
+        _ready = true;
+        foreach (var box in new[] { HostBox, PortBox, TimeoutBox, OidBox }) ValidateField(box);
     }
+
+    // ---- MIB --------------------------------------------------------------
+
+    private void MibButton_Click(object sender, RoutedEventArgs e)
+    {
+        new MibWindow { Owner = this }.ShowDialog();
+        RefreshNames();
+    }
+
+    private void Window_DragOver(object sender, DragEventArgs e)
+    {
+        if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
+        e.Effects = DragDropEffects.Copy;
+        e.Handled = true;
+    }
+
+    private void Window_Drop(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetData(DataFormats.FileDrop) is not string[] files) return;
+        e.Handled = true;
+
+        var result = MibStore.Instance.Import(files);
+        RefreshNames();
+        SetStatus(result.Summary(), result.Loaded == 0 || result.Warnings.Count > 0 ? BusyBrush : OkBrush);
+    }
+
+    /// <summary>Dopo aver cambiato le MIB aggiorna nomi e valori dei risultati gia' a video.</summary>
+    private void RefreshNames()
+    {
+        var updated = _results
+            .Select(r => r with
+            {
+                Name = MibNames.Resolve(r.Oid),
+                Value = MibStore.Instance.DecorateValue(r.Oid, r.Type, r.Raw ?? r.Value),
+            })
+            .ToList();
+
+        if (updated.Count > 0) ShowResults(updated);
+        UpdateMibButton();
+    }
+
+    private void UpdateMibButton() => MibButton.Content = $"MIB ({MibStore.Instance.Modules.Count})";
 
     private void ThemeToggle_Click(object sender, RoutedEventArgs e)
         => App.ApplyTheme(ThemeToggle.IsChecked == true, save: true);
@@ -48,47 +96,100 @@ public partial class MainWindow : Window
         return brush;
     }
 
+    // ---- Validazione ------------------------------------------------------
+
+    private static string? ErrorFor(TextBox box) => box.Name switch
+    {
+        nameof(HostBox) => InputValidator.Host(box.Text),
+        nameof(PortBox) => InputValidator.Port(box.Text),
+        nameof(TimeoutBox) => InputValidator.Timeout(box.Text),
+        nameof(OidBox) => InputValidator.Oid(box.Text),
+        _ => null
+    };
+
+    /// <summary>Evidenzia il campo in rosso (con tooltip) se non valido.</summary>
+    private string? ValidateField(TextBox box)
+    {
+        var error = ErrorFor(box);
+        box.Tag = error is null ? null : "invalid";
+        box.ToolTip = error;
+        return error;
+    }
+
+    private void Field_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (!_ready || sender is not TextBox box) return;
+
+        var error = ValidateField(box);
+        if (error is not null) SetStatus(error, ErrorBrush);
+    }
+
+    /// <summary>Controlla i campi richiesti; al primo errore lo mostra e porta il focus sul campo.</summary>
+    private bool ValidateInputs(bool needOid)
+    {
+        var fields = needOid
+            ? new[] { HostBox, PortBox, TimeoutBox, OidBox }
+            : new[] { HostBox, PortBox, TimeoutBox };
+
+        string? firstError = null;
+        TextBox? firstField = null;
+        foreach (var box in fields)
+        {
+            var error = ValidateField(box);
+            if (error is not null && firstError is null)
+            {
+                firstError = error;
+                firstField = box;
+            }
+        }
+
+        if (firstError is null) return true;
+
+        SetStatus(firstError, ErrorBrush);
+        firstField!.Focus();
+        firstField.SelectAll();
+        return false;
+    }
+
     // ---- Azioni -----------------------------------------------------------
 
     private async void GetButton_Click(object sender, RoutedEventArgs e)
     {
+        if (!ValidateInputs(needOid: true)) return;
         var oid = OidBox.Text;
-        await RunAsync("Get", async s =>
-        {
-            var entries = await SnmpService.GetAsync(s, oid);
-            ShowResults(entries);
-            return $"{entries.Count} valore/i letti";
-        });
+        await RunAsync("Get", s => SnmpService.GetAsync(s, oid), n => $"{n} valore/i letti");
     }
 
     private async void WalkButton_Click(object sender, RoutedEventArgs e)
     {
+        if (!ValidateInputs(needOid: true)) return;
         var oid = OidBox.Text;
-        await RunAsync("Walk", async s =>
-        {
-            var entries = await SnmpService.WalkAsync(s, oid);
-            ShowResults(entries);
-            return $"{entries.Count} OID trovati";
-        });
+        await RunAsync("Walk", s => SnmpService.WalkAsync(s, oid), n => $"{n} OID trovati");
     }
 
     private async void SetButton_Click(object sender, RoutedEventArgs e)
     {
+        if (!ValidateInputs(needOid: true)) return;
+
         var oid = OidBox.Text;
         var type = ((ComboBoxItem)SetTypeBox.SelectedItem).Content?.ToString() ?? "Integer32";
         var value = SetValueBox.Text;
+
+        var valueError = InputValidator.SetValue(type, value);
+        if (valueError is not null)
+        {
+            SetStatus(valueError, ErrorBrush);
+            SetValueBox.Focus();
+            SetValueBox.SelectAll();
+            return;
+        }
 
         var confirm = MessageBox.Show(
             $"Scrivere '{value}' ({type}) su {oid}?\nL'operazione modifica il dispositivo.",
             "Conferma Set", MessageBoxButton.YesNo, MessageBoxImage.Warning);
         if (confirm != MessageBoxResult.Yes) return;
 
-        await RunAsync("Set", async s =>
-        {
-            var entries = await SnmpService.SetAsync(s, oid, type, value);
-            ShowResults(entries);
-            return "valore scritto";
-        });
+        await RunAsync("Set", s => SnmpService.SetAsync(s, oid, type, value), _ => "valore scritto");
     }
 
     private void PresetButton_Click(object sender, RoutedEventArgs e)
@@ -115,7 +216,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task RunAsync(string label, Func<SnmpSettings, Task<string>> action)
+    private async Task RunAsync(string label, Func<SnmpSettings, Task<SnmpResult>> action, Func<int, string> okText)
     {
         SetBusy(true);
         try
@@ -123,8 +224,28 @@ public partial class MainWindow : Window
             var settings = ReadSettings();
             SetStatus($"{label} in corso...", BusyBrush);
             var sw = Stopwatch.StartNew();
-            var message = await action(settings);
-            SetStatus($"{label} completato: {message} ({sw.ElapsedMilliseconds} ms)", OkBrush);
+
+            var result = await action(settings);
+            var elapsed = sw.ElapsedMilliseconds;
+
+            // In caso di errore senza dati lascio a video i risultati precedenti
+            if (result.Ok || result.Entries.Count > 0)
+                ShowResults(result.Entries);
+
+            if (!result.Ok)
+            {
+                var partial = result.Entries.Count > 0 ? $" (risultati parziali: {result.Entries.Count})" : "";
+                SetStatus($"{label} fallito: {result.Error}{partial}", ErrorBrush);
+            }
+            else if (result.Entries.Count == 0)
+            {
+                SetStatus($"{label}: nessun risultato. L'OID potrebbe non esistere o non essere accessibile con questa community.",
+                    BusyBrush);
+            }
+            else
+            {
+                SetStatus($"{label} completato: {okText(result.Entries.Count)} ({elapsed} ms)", OkBrush);
+            }
         }
         catch (Exception ex)
         {
@@ -136,25 +257,15 @@ public partial class MainWindow : Window
         }
     }
 
-    private SnmpSettings ReadSettings()
+    /// <summary>Costruisce le impostazioni; i campi sono gia' stati validati da ValidateInputs.</summary>
+    private SnmpSettings ReadSettings() => new()
     {
-        if (string.IsNullOrWhiteSpace(HostBox.Text))
-            throw new FormatException("Host mancante");
-        if (!int.TryParse(PortBox.Text, out var port) || port < 1 || port > 65535)
-            throw new FormatException("Porta non valida");
-        if (!int.TryParse(TimeoutBox.Text, out var timeout) || timeout < 100)
-            throw new FormatException("Timeout non valido (minimo 100 ms)");
-
-        var version = VersionBox.SelectedIndex == 0 ? VersionCode.V1 : VersionCode.V2;
-        return new SnmpSettings
-        {
-            Host = HostBox.Text.Trim(),
-            Port = port,
-            Community = CommunityBox.Text,
-            Version = version,
-            TimeoutMs = timeout,
-        };
-    }
+        Host = HostBox.Text.Trim(),
+        Port = int.Parse(PortBox.Text.Trim()),
+        Community = CommunityBox.Text,
+        Version = VersionBox.SelectedIndex == 0 ? VersionCode.V1 : VersionCode.V2,
+        TimeoutMs = int.Parse(TimeoutBox.Text.Trim()),
+    };
 
     private void SetBusy(bool busy)
     {
@@ -270,5 +381,9 @@ public partial class MainWindow : Window
         DetType.Text = entry?.Type ?? "-";
         DetValue.Text = entry?.Value ?? "";
         CopyButton.IsEnabled = entry is not null;
+
+        var info = entry is null ? null : MibStore.Instance.Describe(entry.Oid);
+        DetInfo.Text = info ?? "";
+        DetInfo.Visibility = info is null ? Visibility.Collapsed : Visibility.Visible;
     }
 }

@@ -15,30 +15,96 @@ public sealed class SnmpSettings
     public int TimeoutMs { get; init; } = 3000;
 }
 
-/// <summary>Wrapper di SharpSnmpLib: le chiamate bloccanti girano su un thread del pool.</summary>
+/// <summary>Esito di un'operazione SNMP: errori e timeout sono dati, non eccezioni.</summary>
+public sealed record SnmpResult(List<SnmpEntry> Entries, string? Error = null)
+{
+    public bool Ok => Error is null;
+}
+
+/// <summary>
+/// Wrapper di SharpSnmpLib. Le chiamate bloccanti girano su un thread del pool e
+/// ogni eccezione viene intercettata qui, cosi' non risale mai al chiamante come "non gestita".
+/// </summary>
 public static class SnmpService
 {
-    public static Task<List<SnmpEntry>> GetAsync(SnmpSettings s, string oid) => Task.Run(() =>
+    public static Task<SnmpResult> GetAsync(SnmpSettings s, string oid) => Task.Run(() =>
     {
-        var vars = new List<Variable> { new(new ObjectIdentifier(Normalize(oid))) };
-        var result = Messenger.Get(s.Version, Resolve(s), new OctetString(s.Community), vars, s.TimeoutMs);
-        return result.Select(ToEntry).ToList();
+        try
+        {
+            var vars = new List<Variable> { new(new ObjectIdentifier(Normalize(oid))) };
+            var result = Messenger.Get(s.Version, Resolve(s), new OctetString(s.Community), vars, s.TimeoutMs);
+            return new SnmpResult(result.Select(ToEntry).ToList());
+        }
+        catch (Exception ex)
+        {
+            return new SnmpResult(new List<SnmpEntry>(), Describe(ex, s));
+        }
     });
 
-    public static Task<List<SnmpEntry>> WalkAsync(SnmpSettings s, string rootOid) => Task.Run(() =>
+    public static Task<SnmpResult> WalkAsync(SnmpSettings s, string rootOid) => Task.Run(() =>
     {
         var list = new List<Variable>();
-        Messenger.Walk(s.Version, Resolve(s), new OctetString(s.Community),
-            new ObjectIdentifier(Normalize(rootOid)), list, s.TimeoutMs, WalkMode.WithinSubtree);
-        return list.Select(ToEntry).ToList();
+        try
+        {
+            Messenger.Walk(s.Version, Resolve(s), new OctetString(s.Community),
+                new ObjectIdentifier(Normalize(rootOid)), list, s.TimeoutMs, WalkMode.WithinSubtree);
+            return new SnmpResult(list.Select(ToEntry).ToList());
+        }
+        catch (Exception ex)
+        {
+            // se il walk si interrompe a meta' (es. timeout) restituisco quanto raccolto finora
+            return new SnmpResult(list.Select(ToEntry).ToList(), Describe(ex, s));
+        }
     });
 
-    public static Task<List<SnmpEntry>> SetAsync(SnmpSettings s, string oid, string type, string value) => Task.Run(() =>
+    public static Task<SnmpResult> SetAsync(SnmpSettings s, string oid, string type, string value) => Task.Run(() =>
     {
-        var vars = new List<Variable> { new(new ObjectIdentifier(Normalize(oid)), BuildData(type, value)) };
-        var result = Messenger.Set(s.Version, Resolve(s), new OctetString(s.Community), vars, s.TimeoutMs);
-        return result.Select(ToEntry).ToList();
+        try
+        {
+            var vars = new List<Variable> { new(new ObjectIdentifier(Normalize(oid)), BuildData(type, value.Trim())) };
+            var result = Messenger.Set(s.Version, Resolve(s), new OctetString(s.Community), vars, s.TimeoutMs);
+            return new SnmpResult(result.Select(ToEntry).ToList());
+        }
+        catch (Exception ex)
+        {
+            return new SnmpResult(new List<SnmpEntry>(), Describe(ex, s));
+        }
     });
+
+    /// <summary>Traduce le eccezioni in messaggi comprensibili.</summary>
+    private static string Describe(Exception ex, SnmpSettings s)
+    {
+        if (ex is AggregateException { InnerException: { } inner })
+            ex = inner;
+
+        if (ex is Lextm.SharpSnmpLib.Messaging.TimeoutException)
+        {
+            return $"Timeout: {s.Host}:{s.Port} non ha risposto entro {s.TimeoutMs} ms. " +
+                   $"Controlla IP, porta, community, versione SNMP e che il firewall lasci passare UDP {s.Port}.";
+        }
+
+        if (ex is SocketException se)
+        {
+            return se.SocketErrorCode switch
+            {
+                SocketError.HostNotFound or SocketError.TryAgain or SocketError.NoData
+                    => $"Host '{s.Host}' non trovato (DNS).",
+                SocketError.HostUnreachable or SocketError.NetworkUnreachable
+                    => $"Host '{s.Host}' non raggiungibile.",
+                SocketError.ConnectionReset or SocketError.ConnectionRefused
+                    => $"{s.Host}:{s.Port} ha rifiutato la connessione (nessun agent SNMP in ascolto?).",
+                _ => $"Errore di rete: {se.Message}"
+            };
+        }
+
+        if (ex.GetType().Name == "ErrorException")
+            return $"L'agent ha risposto con un errore: {ex.Message}";
+
+        if (ex is FormatException or OverflowException or ArgumentException)
+            return $"Valore non valido: {ex.Message}";
+
+        return ex.Message;
+    }
 
     private static ISnmpData BuildData(string type, string value) => type switch
     {
@@ -51,7 +117,7 @@ public static class SnmpService
         _ => throw new ArgumentException($"Tipo non supportato: {type}")
     };
 
-    private static string Normalize(string oid) => oid.Trim().TrimStart('.');
+    private static string Normalize(string oid) => MibStore.Instance.NormalizeOid(oid);
 
     private static IPEndPoint Resolve(SnmpSettings s)
     {
@@ -66,6 +132,8 @@ public static class SnmpService
     private static SnmpEntry ToEntry(Variable v)
     {
         var oid = v.Id.ToString().TrimStart('.');
-        return new SnmpEntry(oid, MibNames.Resolve(oid), v.Data.TypeCode.ToString(), v.Data.ToString() ?? "");
+        var type = v.Data.TypeCode.ToString();
+        var raw = v.Data.ToString() ?? "";
+        return new SnmpEntry(oid, MibNames.Resolve(oid), type, MibStore.Instance.DecorateValue(oid, type, raw), raw);
     }
 }

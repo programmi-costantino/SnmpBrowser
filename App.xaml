@@ -65,6 +65,9 @@
                             <Trigger Property="IsKeyboardFocused" Value="True">
                                 <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
                             </Trigger>
+                            <Trigger Property="Tag" Value="invalid">
+                                <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource DangerBrush}" />
+                            </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="bd" Property="Opacity" Value="0.55" />
                             </Trigger>

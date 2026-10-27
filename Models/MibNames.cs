@@ -1,3 +1,5 @@
+using SnmpBrowser.Services;
+
 namespace SnmpBrowser.Models;
 
 /// <summary>Piccolo dizionario di nomi MIB-II piu' comuni, per mostrare nomi leggibili.</summary>
@@ -46,12 +48,22 @@ public static class MibNames
         ["1.3.6.1.4.1"] = "enterprises",
     };
 
-    /// <summary>Nome esatto dell'OID, se noto.</summary>
-    public static string? Exact(string oid) => Names.TryGetValue(oid, out var n) ? n : null;
+    private static readonly Dictionary<string, string> ByName =
+        Names.GroupBy(kv => kv.Value).ToDictionary(g => g.Key, g => g.First().Key);
+
+    /// <summary>OID di un nome MIB-II noto (es. sysDescr).</summary>
+    public static bool TryByName(string name, out string oid) => ByName.TryGetValue(name, out oid!);
+
+    /// <summary>Nome esatto dell'OID, se noto (prima le MIB caricate, poi quelle incluse).</summary>
+    public static string? Exact(string oid) =>
+        MibStore.Instance.Exact(oid) ?? (Names.TryGetValue(oid, out var n) ? n : null);
 
     /// <summary>Risolve l'OID con il prefisso noto piu' lungo (es. sysDescr.0).</summary>
     public static string Resolve(string oid)
     {
+        var symbol = MibStore.Instance.Lookup(oid, out var suffix);
+        if (symbol is not null) return symbol.Name + suffix;
+
         var parts = oid.Split('.');
         for (var len = parts.Length; len >= 1; len--)
         {
