@@ -4,10 +4,15 @@
 # Uso (da PowerShell, nella cartella SnmpBrowser):   .\tools\get-mingit.ps1
 
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'   # Invoke-WebRequest e' molto piu' veloce senza barra di avanzamento
 $root = Split-Path -Parent $PSScriptRoot
 $dest = Join-Path $root 'git'
 
-$release = Invoke-RestMethod 'https://api.github.com/repos/git-for-windows/git/releases/latest' -Headers @{ 'User-Agent' = 'snmpbrowser' }
+# con un token (in GitHub Actions) il limite di richieste all'API passa da 60 a 1000 l'ora
+$headers = @{ 'User-Agent' = 'snmpbrowser' }
+if ($env:GH_TOKEN) { $headers['Authorization'] = "Bearer $env:GH_TOKEN" }
+
+$release = Invoke-RestMethod 'https://api.github.com/repos/git-for-windows/git/releases/latest' -Headers $headers
 $asset = $release.assets | Where-Object { $_.name -match '^MinGit-.*-64-bit\.zip$' -and $_.name -notmatch 'busybox' } | Select-Object -First 1
 if (-not $asset) { throw 'MinGit 64-bit non trovata nell ultima release.' }
 
