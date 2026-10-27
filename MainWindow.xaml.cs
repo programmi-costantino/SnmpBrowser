@@ -39,6 +39,7 @@ public partial class MainWindow : Window
         ShowDetail(null);
         UpdateMibButton();
         UpdateCount();
+        InitPlugins();
 
         _ready = true;
         foreach (var box in new[] { HostBox, PortBox, TimeoutBox, OidBox }) ValidateField(box);
@@ -46,17 +47,13 @@ public partial class MainWindow : Window
 
     // ---- MIB --------------------------------------------------------------
 
-    private void MibButton_Click(object sender, RoutedEventArgs e)
+    private async void MibButton_Click(object sender, RoutedEventArgs e)
     {
         new MibWindow { Owner = this }.ShowDialog();
-        RefreshNames();
+        await RefreshNamesAsync();
     }
 
-    private void RepoButton_Click(object sender, RoutedEventArgs e)
-    {
-        new MibRepoWindow { Owner = this }.ShowDialog();
-        RefreshNames();
-    }
+    private async void RepoButton_Click(object sender, RoutedEventArgs e) => await OpenCatalogWindowAsync("mib");
 
     private void Window_DragOver(object sender, DragEventArgs e)
     {
@@ -65,28 +62,31 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
-    private void Window_Drop(object sender, DragEventArgs e)
+    private async void Window_Drop(object sender, DragEventArgs e)
     {
         if (e.Data.GetData(DataFormats.FileDrop) is not string[] files) return;
         e.Handled = true;
 
         var result = MibStore.Instance.Import(files);
-        RefreshNames();
+        await RefreshNamesAsync();
         SetStatus(result.Summary(), result.Loaded == 0 || result.Warnings.Count > 0 ? BusyBrush : OkBrush);
     }
 
-    /// <summary>Dopo aver cambiato le MIB aggiorna nomi e valori dei risultati gia' a video.</summary>
-    private void RefreshNames()
+    /// <summary>Dopo aver cambiato MIB o plugin aggiorna nomi e valori dei risultati gia' a video (i decodificatori dei plugin girano fuori dal thread dell'interfaccia).</summary>
+    private async Task RefreshNamesAsync()
     {
-        var updated = _results
-            .Select(r => r with
-            {
-                Name = MibNames.Resolve(r.Oid),
-                Value = MibStore.Instance.DecorateValue(r.Oid, r.Type, r.Raw ?? r.Value),
-            })
-            .ToList();
-
-        if (updated.Count > 0) ShowResults(updated);
+        var current = _results.ToList();
+        if (current.Count > 0)
+        {
+            var updated = await Task.Run(() => current
+                .Select(r => r with
+                {
+                    Name = MibNames.Resolve(r.Oid),
+                    Value = ValuePipeline.Format(r.Oid, r.Type, r.Raw ?? r.Value),
+                })
+                .ToList());
+            ShowResults(updated);
+        }
         UpdateMibButton();
     }
 

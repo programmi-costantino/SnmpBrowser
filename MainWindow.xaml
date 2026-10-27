@@ -34,9 +34,12 @@
                 </StackPanel>
             </StackPanel>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                <Button x:Name="RepoButton" Content="Repository MIB" Padding="14,6" Margin="0,0,8,0"
+                <Button x:Name="PluginButton" Content="Plugin" Padding="14,6" Margin="0,0,8,0"
+                        Style="{StaticResource SecondaryButton}" Click="PluginButton_Click"
+                        ToolTip="Pannelli e azioni dei plugin attivi, gestione plugin" />
+                <Button x:Name="RepoButton" Content="Repository" Padding="14,6" Margin="0,0,8,0"
                         Style="{StaticResource SecondaryButton}" Click="RepoButton_Click"
-                        ToolTip="Scarica le MIB dal repository condiviso e scegli la versione" />
+                        ToolTip="Scarica MIB e plugin dai repository condivisi e scegli la versione" />
                 <Button x:Name="MibButton" Content="MIB (0)" Padding="14,6" Margin="0,0,24,0"
                         Style="{StaticResource SecondaryButton}" Click="MibButton_Click"
                         ToolTip="Carica e gestisci i file MIB (puoi anche trascinarli nella finestra)" />
@@ -213,7 +216,11 @@
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
+                        <Button x:Name="ExportButton" Grid.Column="3" Content="Esporta" Margin="8,0,0,0" Padding="12,4"
+                                Style="{StaticResource SecondaryButton}" Click="ExportButton_Click"
+                                ToolTip="Esporta i risultati (CSV o formati dei plugin)" />
                         <TextBlock Grid.Column="0" Text="RISULTATI" Style="{StaticResource FieldLabel}"
                                    VerticalAlignment="Center" Margin="0" />
                         <TextBlock Grid.Column="1" x:Name="CountText" Foreground="{DynamicResource MutedBrush}"
