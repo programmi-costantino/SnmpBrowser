@@ -1,0 +1,59 @@
+# Crea installer e aggiornamenti (Velopack) quando si pubblica un tag "vX.Y.Z".
+# Uso:   git tag v1.0.0 ; git push origin v1.0.0
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      REPO_URL: https://github.com/${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Versione dal tag
+        shell: pwsh
+        run: |
+          $v = '${{ github.ref_name }}'.TrimStart('v')
+          if ($v -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') { throw "Il tag deve avere la forma vX.Y.Z (trovato: $v)" }
+          "VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: MinGit (git incluso nell'app, con licenza e sorgenti)
+        shell: pwsh
+        run: ./tools/get-mingit.ps1
+
+      - name: Publish
+        shell: pwsh
+        run: dotnet publish SnmpBrowser.csproj -c Release -r win-x64 --self-contained -p:Version=$env:VERSION -o publish
+
+      - name: Strumento Velopack
+        shell: pwsh
+        run: dotnet tool install -g vpk
+
+      - name: Scarica le release precedenti (servono per gli aggiornamenti differenziali)
+        shell: pwsh
+        continue-on-error: true
+        run: vpk download github --repoUrl $env:REPO_URL --token ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Crea installer e pacchetti
+        shell: pwsh
+        run: >
+          vpk pack --packId SnmpBrowser --packTitle "SNMP Browser" --packAuthors "programmi-costantino"
+          --packVersion $env:VERSION --packDir publish --mainExe SnmpBrowser.exe
+
+      - name: Pubblica su GitHub Releases
+        shell: pwsh
+        run: >
+          vpk upload github --repoUrl $env:REPO_URL --publish
+          --releaseName "SNMP Browser $env:VERSION" --tag ${{ github.ref_name }}
+          --token ${{ secrets.GITHUB_TOKEN }}

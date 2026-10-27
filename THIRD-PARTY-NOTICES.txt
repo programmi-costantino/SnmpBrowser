@@ -1,0 +1,20 @@
+SNMP Browser - componenti di terze parti
+========================================
+
+Git for Windows (MinGit)  -  GNU General Public License v2 (GPLv2)
+-------------------------------------------------------------------
+L'app include MinGit, la versione portabile di Git for Windows, nella cartella "git" accanto all'eseguibile.
+MinGit e' un programma separato: l'app lo avvia come processo esterno (git.exe) e non ne e' un'opera derivata.
+
+  - Testo della licenza:   git\COPYING-GPL-2.0.txt  (e https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt)
+  - Versione e sorgenti:   git\SOURCE-AND-LICENSE.txt  (indica il tag esatto e il link ai sorgenti)
+  - Progetto:              https://gitforwindows.org/  -  https://github.com/git-for-windows/git
+  - Codice sorgente:       https://github.com/git-for-windows/git/releases   (archivio sorgente del tag indicato)
+
+Hai diritto di ricevere, copiare, modificare e ridistribuire MinGit secondo i termini della GPLv2.
+Puoi anche sostituire la cartella "git" con un'altra build di git: l'app usa git.exe che trova li'
+(oppure quello installato sul PC).
+
+SharpSnmpLib (Lextm.SharpSnmpLib)  -  MIT License     https://github.com/lextudio/sharpsnmplib
+Jint                               -  BSD 2-Clause    https://github.com/sebastienros/jint
+Velopack                           -  MIT License     https://github.com/velopack/velopack

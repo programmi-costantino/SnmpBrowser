@@ -129,12 +129,12 @@ public partial class MainWindow
         var settings = TryGetSettings();
         if (settings is null && (plugin.Manifest.Permissions.Contains("snmp.read") || plugin.Manifest.Permissions.Contains("snmp.write")))
         {
-            SetStatus("Controlla host, porta e timeout prima di avviare l'esecuzione periodica.", ErrorBrush);
+            SetStatus("Controlla host, porta, timeout e credenziali SNMP prima di avviare l'esecuzione periodica.", ErrorBrush);
             return;
         }
 
         PluginScheduler.Instance.Start(plugin, schedule, settings, HostBox.Text.Trim(), PortBox.Text.Trim(),
-            VersionBox.SelectedIndex == 0 ? "v1" : "v2c");
+            VersionText());
         SetStatus($"{plugin.DisplayName}: '{schedule.Title}' avviato (ogni {FormatEvery(schedule.EverySeconds)}) su {HostBox.Text.Trim()}.", OkBrush);
     }
 
@@ -155,6 +155,7 @@ public partial class MainWindow
     {
         foreach (var box in new[] { HostBox, PortBox, TimeoutBox })
             if (ErrorFor(box) is not null) return null;
+        if (V3Error() is not null) return null;
         return ReadSettings();
     }
 
@@ -165,7 +166,7 @@ public partial class MainWindow
         {
             host = HostBox.Text.Trim(),
             port = PortBox.Text.Trim(),
-            version = VersionBox.SelectedIndex == 0 ? "v1" : "v2c",
+            version = VersionText(),
             oid = OidBox.Text.Trim(),
             selected = selected is null ? null : Dto(selected),
             entries = VisibleEntries().Select(Dto).ToList(),

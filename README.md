@@ -74,3 +74,40 @@ Il pulsante Plugin mostra `● n` quando ce ne sono in corso.
 **Gestisci plugin -> Installa da file...** accetta una cartella o un `.zip` con `plugin.json` (anche dentro un'unica sottocartella, come gli zip di GitHub).
 Il plugin viene copiato in `%AppData%\SnmpBrowser\local-plugins` e richiede la stessa approvazione degli altri.
 Per una rete isolata si puo' anche usare un server git interno come sorgente personale.
+
+## SNMP v1, v2c e v3
+
+Il menu **Versione** offre v1, v2c e v3. Con v3 compaiono utente, livello di sicurezza
+(noAuthNoPriv / authNoPriv / authPriv), protocollo e password di autenticazione (MD5, SHA-1, SHA-256/384/512),
+protocollo e password di cifratura (DES, AES-128/192/256) e context name. Le password (minimo 8 caratteri)
+non vengono salvate su disco e non sono mai passate ai plugin.
+Il walk v3 usa GetNext (una richiesta per OID): e' piu' lento del bulk ma funziona con ogni agent.
+Errori v3 tipici (utente sconosciuto, password errata, livello non supportato) hanno messaggi dedicati.
+
+## Aggiornamenti e rilascio (Velopack + GitHub Releases)
+
+L'app controlla le release pubbliche del repository GitHub (`UpdateService.RepoUrl`, da impostare con il tuo repository):
+all'avvio (disattivabile) e dal pulsante **Aggiornamenti** in basso a destra, che scarica la nuova versione e riavvia l'app.
+Funziona solo nella versione installata, non avviando da Visual Studio.
+
+Per pubblicare una versione:
+
+1. Su GitHub: repository pubblico, Settings -> Actions -> General -> Workflow permissions: **Read and write**.
+2. Il repository deve contenere questa cartella come radice (`.github/workflows/release.yml` e `SnmpBrowser.csproj` in cima).
+3. Aggiorna `RepoUrl` in `Services/UpdateService.cs`, poi:
+
+        git tag v1.0.0
+        git push origin v1.0.0
+
+   Il workflow scarica MinGit (con licenza GPLv2 e link ai sorgenti), pubblica l'app, crea con `vpk` l'installer
+   `SnmpBrowser-win-Setup.exe` e i pacchetti di aggiornamento (anche differenziali) e li carica nella release.
+4. Gli utenti installano `SnmpBrowser-win-Setup.exe`; le versioni successive arrivano dall'app.
+
+Prova locale (facoltativa): `dotnet tool install -g vpk`, poi
+`dotnet publish -c Release -r win-x64 --self-contained -p:Version=1.0.0 -o publish` e
+`vpk pack --packId SnmpBrowser --packVersion 1.0.0 --packDir publish --mainExe SnmpBrowser.exe`.
+
+Note:
+- L'installer non e' firmato: Windows SmartScreen mostrera' un avviso ("Maggiori informazioni" -> "Esegui comunque") finche' non aggiungi un certificato di firma (`vpk pack --signParams ...`).
+- La versione della libreria `Velopack` nel csproj e quella dello strumento `vpk` devono essere compatibili: se `vpk pack` si lamenta, installa la stessa versione (`dotnet tool update -g vpk --version X`).
+- Licenze: git (GPLv2) e le altre librerie sono elencate in `THIRD-PARTY-NOTICES.txt`, copiato nell'installer insieme a `git\COPYING-GPL-2.0.txt` e `git\SOURCE-AND-LICENSE.txt`.

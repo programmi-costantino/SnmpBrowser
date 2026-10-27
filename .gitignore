@@ -8,3 +8,5 @@ git/
 
 # Esempio di repo centrale MIB (solo per prove locali)
 example-central-git-repo/
+publish/
+Releases/

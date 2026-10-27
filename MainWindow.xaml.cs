@@ -40,8 +40,10 @@ public partial class MainWindow : Window
         UpdateMibButton();
         UpdateCount();
         InitPlugins();
+        InitUpdates();
 
         _ready = true;
+        UpdateVersionUi();
         foreach (var box in new[] { HostBox, PortBox, TimeoutBox, OidBox }) ValidateField(box);
     }
 
@@ -130,6 +132,59 @@ public partial class MainWindow : Window
         if (error is not null) SetStatus(error, ErrorBrush);
     }
 
+    // ---- SNMPv3 -------------------------------------------------------------
+
+    private bool IsV3 => VersionBox.SelectedIndex == 2;
+
+    private string VersionText() => VersionBox.SelectedIndex switch { 0 => "v1", 1 => "v2c", _ => "v3" };
+
+    private V3Level SelectedLevel => SecLevelBox.SelectedIndex switch
+    {
+        0 => V3Level.NoAuthNoPriv,
+        1 => V3Level.AuthNoPriv,
+        _ => V3Level.AuthPriv,
+    };
+
+    private static string ComboText(ComboBox box) => (box.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "";
+
+    private void VersionBox_SelectionChanged(object sender, SelectionChangedEventArgs e) => UpdateVersionUi();
+
+    private void SecLevelBox_SelectionChanged(object sender, SelectionChangedEventArgs e) => UpdateVersionUi();
+
+    /// <summary>Con v3 sparisce la community e compaiono utente, livello e (secondo il livello) password.</summary>
+    private void UpdateVersionUi()
+    {
+        if (!_ready) return;
+
+        var v3 = IsV3;
+        CommunityPanel.Visibility = v3 ? Visibility.Collapsed : Visibility.Visible;
+        V3Panel.Visibility = v3 ? Visibility.Visible : Visibility.Collapsed;
+
+        var auth = SelectedLevel != V3Level.NoAuthNoPriv;
+        var priv = SelectedLevel == V3Level.AuthPriv;
+        AuthProtoPanel.Visibility = auth ? Visibility.Visible : Visibility.Hidden;
+        AuthPassPanel.Visibility = auth ? Visibility.Visible : Visibility.Hidden;
+        PrivProtoPanel.Visibility = priv ? Visibility.Visible : Visibility.Hidden;
+        PrivPassPanel.Visibility = priv ? Visibility.Visible : Visibility.Hidden;
+    }
+
+    /// <summary>Errore nelle credenziali v3 (null se la versione non e' v3 o i dati sono validi).</summary>
+    private string? V3Error()
+    {
+        if (!IsV3) return null;
+
+        var error = InputValidator.V3User(UserBox.Text);
+        if (error is not null) return error;
+        if (SelectedLevel != V3Level.NoAuthNoPriv)
+        {
+            error = InputValidator.V3Password(AuthPassBox.Password, "autenticazione");
+            if (error is not null) return error;
+        }
+        return SelectedLevel == V3Level.AuthPriv
+            ? InputValidator.V3Password(PrivPassBox.Password, "cifratura")
+            : null;
+    }
+
     /// <summary>Controlla i campi richiesti; al primo errore lo mostra e porta il focus sul campo.</summary>
     private bool ValidateInputs(bool needOid)
     {
@@ -149,7 +204,15 @@ public partial class MainWindow : Window
             }
         }
 
-        if (firstError is null) return true;
+        if (firstError is null)
+        {
+            var v3Error = V3Error();
+            if (v3Error is null) return true;
+
+            SetStatus(v3Error, ErrorBrush);
+            (UserBox.Text.Trim().Length == 0 ? UserBox : (UIElement)(AuthPassBox.Password.Length < 8 ? AuthPassBox : PrivPassBox)).Focus();
+            return false;
+        }
 
         SetStatus(firstError, ErrorBrush);
         firstField!.Focus();
@@ -269,7 +332,14 @@ public partial class MainWindow : Window
         Host = HostBox.Text.Trim(),
         Port = int.Parse(PortBox.Text.Trim()),
         Community = CommunityBox.Text,
-        Version = VersionBox.SelectedIndex == 0 ? VersionCode.V1 : VersionCode.V2,
+        Version = VersionBox.SelectedIndex switch { 0 => VersionCode.V1, 1 => VersionCode.V2, _ => VersionCode.V3 },
+        User = UserBox.Text.Trim(),
+        SecurityLevel = SelectedLevel,
+        AuthProtocol = ComboText(AuthProtoBox),
+        AuthPassword = AuthPassBox.Password,
+        PrivProtocol = ComboText(PrivProtoBox),
+        PrivPassword = PrivPassBox.Password,
+        ContextName = ContextBox.Text.Trim(),
         TimeoutMs = int.Parse(TimeoutBox.Text.Trim()),
     };
 

@@ -61,6 +61,19 @@ public static class InputValidator
             ? null
             : "Timeout non valido: inserisci i millisecondi, da 100 a 60000.";
 
+    // ---- SNMPv3 ----
+
+    public static string? V3User(string text) =>
+        text.Trim().Length is >= 1 and <= 32
+            ? null
+            : "SNMPv3: inserisci il nome utente (da 1 a 32 caratteri).";
+
+    /// <summary>RFC 3414: le password SNMPv3 devono avere almeno 8 caratteri.</summary>
+    public static string? V3Password(string text, string label) =>
+        text.Length is >= 8 and <= 128
+            ? null
+            : $"SNMPv3: la password di {label} deve avere da 8 a 128 caratteri.";
+
     public static string? Oid(string text)
     {
         var oid = text.Trim().TrimStart('.');

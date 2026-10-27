@@ -1,0 +1,30 @@
+<Window x:Class="SnmpBrowser.UpdateWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Aggiornamenti" Width="480" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize" FontFamily="Segoe UI"
+        Background="{DynamicResource BgBrush}" Foreground="{DynamicResource TextBrush}"
+        Loaded="Window_Loaded">
+    <StackPanel Margin="20">
+        <TextBlock Text="Aggiornamenti" FontSize="20" FontWeight="SemiBold" />
+        <TextBlock x:Name="VersionText" Margin="0,4,0,0" Foreground="{DynamicResource MutedBrush}" />
+
+        <Border Style="{StaticResource Card}" Margin="0,14,0,0">
+            <StackPanel>
+                <TextBlock x:Name="StatusText" TextWrapping="Wrap" Text="Controllo in corso..." />
+                <ProgressBar x:Name="Progress" Height="6" Margin="0,10,0,0" Minimum="0" Maximum="100" Visibility="Collapsed" />
+            </StackPanel>
+        </Border>
+
+        <CheckBox x:Name="AutoBox" Content="Controlla gli aggiornamenti all'avvio" Margin="0,12,0,0"
+                  Foreground="{DynamicResource TextBrush}" Click="AutoBox_Click" />
+        <TextBlock Margin="0,6,0,0" FontSize="12" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}"
+                   Text="L'app contatta solo le release pubbliche su GitHub e non invia dati su di te." />
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button x:Name="CheckButton" Content="Controlla ora" Style="{StaticResource SecondaryButton}" Click="CheckButton_Click" />
+            <Button x:Name="InstallButton" Content="Scarica e riavvia" Margin="8,0,0,0" IsEnabled="False" Click="InstallButton_Click" />
+            <Button Content="Chiudi" Margin="8,0,0,0" Style="{StaticResource SecondaryButton}" IsCancel="True" />
+        </StackPanel>
+    </StackPanel>
+</Window>

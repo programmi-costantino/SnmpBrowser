@@ -55,6 +55,7 @@
 
         <!-- Dispositivo -->
         <Border Grid.Row="1" Style="{StaticResource Card}" Margin="16,16,16,0">
+            <StackPanel>
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="2*" />
@@ -72,15 +73,16 @@
                     <TextBlock Text="PORTA" Style="{StaticResource FieldLabel}" />
                     <TextBox x:Name="PortBox" Text="161" TextChanged="Field_TextChanged" />
                 </StackPanel>
-                <StackPanel Grid.Column="2" Margin="0,0,12,0">
+                <StackPanel x:Name="CommunityPanel" Grid.Column="2" Margin="0,0,12,0">
                     <TextBlock Text="COMMUNITY" Style="{StaticResource FieldLabel}" />
                     <TextBox x:Name="CommunityBox" Text="public" />
                 </StackPanel>
                 <StackPanel Grid.Column="3" Margin="0,0,12,0">
                     <TextBlock Text="VERSIONE" Style="{StaticResource FieldLabel}" />
-                    <ComboBox x:Name="VersionBox" SelectedIndex="1">
+                    <ComboBox x:Name="VersionBox" SelectedIndex="1" SelectionChanged="VersionBox_SelectionChanged">
                         <ComboBoxItem Content="v1" />
                         <ComboBoxItem Content="v2c" />
+                        <ComboBoxItem Content="v3" />
                     </ComboBox>
                 </StackPanel>
                 <StackPanel Grid.Column="4">
@@ -88,6 +90,66 @@
                     <TextBox x:Name="TimeoutBox" Text="3000" TextChanged="Field_TextChanged" />
                 </StackPanel>
             </Grid>
+
+            <!-- Credenziali SNMPv3 (visibili solo con versione v3) -->
+            <Grid x:Name="V3Panel" Margin="0,12,0,0" Visibility="Collapsed">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,12,0">
+                    <TextBlock Text="UTENTE" Style="{StaticResource FieldLabel}" />
+                    <TextBox x:Name="UserBox" />
+                </StackPanel>
+                <StackPanel Grid.Row="0" Grid.Column="1" Margin="0,0,12,0">
+                    <TextBlock Text="LIVELLO DI SICUREZZA" Style="{StaticResource FieldLabel}" />
+                    <ComboBox x:Name="SecLevelBox" SelectedIndex="2" SelectionChanged="SecLevelBox_SelectionChanged">
+                        <ComboBoxItem Content="noAuthNoPriv (nessuna)" />
+                        <ComboBoxItem Content="authNoPriv (autenticato)" />
+                        <ComboBoxItem Content="authPriv (autenticato + cifrato)" />
+                    </ComboBox>
+                </StackPanel>
+                <StackPanel Grid.Row="0" Grid.Column="2" Margin="0,0,12,0">
+                    <TextBlock Text="CONTEXT NAME (OPZIONALE)" Style="{StaticResource FieldLabel}" />
+                    <TextBox x:Name="ContextBox" />
+                </StackPanel>
+
+                <StackPanel x:Name="AuthProtoPanel" Grid.Row="1" Grid.Column="0" Margin="0,10,12,0">
+                    <TextBlock Text="AUTENTICAZIONE" Style="{StaticResource FieldLabel}" />
+                    <ComboBox x:Name="AuthProtoBox" SelectedIndex="1">
+                        <ComboBoxItem Content="MD5" />
+                        <ComboBoxItem Content="SHA-1" />
+                        <ComboBoxItem Content="SHA-256" />
+                        <ComboBoxItem Content="SHA-384" />
+                        <ComboBoxItem Content="SHA-512" />
+                    </ComboBox>
+                </StackPanel>
+                <StackPanel x:Name="AuthPassPanel" Grid.Row="1" Grid.Column="1" Margin="0,10,12,0">
+                    <TextBlock Text="PASSWORD DI AUTENTICAZIONE" Style="{StaticResource FieldLabel}" />
+                    <PasswordBox x:Name="AuthPassBox" />
+                </StackPanel>
+                <StackPanel x:Name="PrivProtoPanel" Grid.Row="1" Grid.Column="2" Margin="0,10,12,0">
+                    <TextBlock Text="CIFRATURA" Style="{StaticResource FieldLabel}" />
+                    <ComboBox x:Name="PrivProtoBox" SelectedIndex="1">
+                        <ComboBoxItem Content="DES" />
+                        <ComboBoxItem Content="AES-128" />
+                        <ComboBoxItem Content="AES-192" />
+                        <ComboBoxItem Content="AES-256" />
+                    </ComboBox>
+                </StackPanel>
+                <StackPanel x:Name="PrivPassPanel" Grid.Row="1" Grid.Column="3" Margin="0,10,0,0">
+                    <TextBlock Text="PASSWORD DI CIFRATURA" Style="{StaticResource FieldLabel}" />
+                    <PasswordBox x:Name="PrivPassBox" />
+                </StackPanel>
+            </Grid>
+            </StackPanel>
         </Border>
 
         <!-- Interrogazione -->
@@ -303,10 +365,15 @@
         <!-- Stato -->
         <Border Grid.Row="5" Margin="0,12,0,0" Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource LineBrush}"
                 BorderThickness="0,1,0,0" Padding="16,8">
-            <StackPanel Orientation="Horizontal">
-                <Ellipse x:Name="StatusDot" Width="10" Height="10" Fill="#94A3B8" Margin="0,1,8,0" />
-                <TextBlock x:Name="StatusText" Text="Pronto" FontSize="12" Foreground="{DynamicResource MutedBrush}" />
-            </StackPanel>
+            <DockPanel>
+                <Button x:Name="UpdateButton" DockPanel.Dock="Right" Style="{StaticResource ChipButton}" Margin="12,0,0,0"
+                        Click="UpdateButton_Click" ToolTip="Controlla se c'e' una nuova versione" />
+                <StackPanel Orientation="Horizontal">
+                    <Ellipse x:Name="StatusDot" Width="10" Height="10" Fill="#94A3B8" Margin="0,1,8,0" />
+                    <TextBlock x:Name="StatusText" Text="Pronto" FontSize="12" Foreground="{DynamicResource MutedBrush}"
+                               TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+            </DockPanel>
         </Border>
     </Grid>
 </Window>
